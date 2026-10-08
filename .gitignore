@@ -1,0 +1,16 @@
+.ignore
+
+# Webots files
+*.wbproj
+*.wbt.bak
+
+# Compiled controller binaries (C/C++)
+/controllers/*/*/*.exe
+/controllers/*/*/*.o
+/controllers/*/*/*.obj
+/controllers/*/*/build/
+
+# Python cache & compiled bytecodes
+__pycache__/
+*.pyc
+*.pyo
