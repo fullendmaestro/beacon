@@ -1,12 +1,13 @@
 "use client";
 
-import { Home, Lightbulb, List } from "lucide-react";
+import { Home, Clock, Lightbulb, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePanelState, type PanelType } from "@/hooks/use-panel-state";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS: { id: PanelType; icon: React.ElementType; label: string }[] = [
   { id: "none", icon: Home, label: "Home" },
+  { id: "threads", icon: Clock, label: "Recent Chats" },
   { id: "smart-home", icon: Lightbulb, label: "Smart Home" },
   { id: "shopping-list", icon: List, label: "Lists" },
 ];

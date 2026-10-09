@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { Thread } from "@/components/assistant-ui/elements/thread.aui";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import {
   unstable_createLangGraphStream,
@@ -13,7 +12,7 @@ import { createClient } from "@/lib/chatApi";
 
 const ASSISTANT_ID = process.env["NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID"]!;
 
-export function Assistant() {
+export function Assistant({ children }: { children: React.ReactNode }) {
   const client = useMemo(() => createClient(), []);
   const stream = useMemo(
     () =>
@@ -44,9 +43,7 @@ export function Assistant() {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <div className="h-full w-full overflow-hidden [&_[data-radix-scroll-area-viewport]]:no-scrollbar [&_[data-aui-scroller]]:no-scrollbar">
-        <Thread />
-      </div>
+      {children}
     </AssistantRuntimeProvider>
   );
 }
