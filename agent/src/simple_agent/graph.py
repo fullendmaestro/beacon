@@ -9,8 +9,11 @@ from typing import Any
 
 from langchain.agents import create_agent
 from langchain_core.tools import tool
+from dotenv import load_dotenv
 
-DEFAULT_MODEL = os.getenv("SIMPLE_AGENT_MODEL", "anthropic:claude-sonnet-4-6")
+load_dotenv()
+
+DEFAULT_MODEL = os.getenv("SIMPLE_AGENT_MODEL", "google_genai:gemini-3.8-flash")
 
 
 @tool
