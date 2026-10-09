@@ -3,10 +3,13 @@
 @import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant fixed (&:is(.layout-fixed *));
 
 @theme inline {
+  --breakpoint-3xl: 1600px;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
@@ -127,4 +130,41 @@
   html {
     @apply font-sans;
   }
+}
+
+/* Layout Variables */
+:root {
+  --header-height: calc(var(--spacing) * 14);
+  --footer-height: calc(var(--spacing) * 14);
+  --surface: oklch(0.98 0 0);
+  --surface-foreground: var(--foreground);
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --header-height: calc(var(--spacing) * 16);
+    --footer-height: calc(var(--spacing) * 24);
+  }
+}
+
+.dark {
+  --surface: oklch(0.2 0 0);
+  --surface-foreground: oklch(0.708 0 0);
+}
+
+/* Custom Layout Utilities */
+@utility border-grid {
+  @apply border-border/50 dark:border-border;
+}
+
+@utility section-soft {
+  @apply bg-linear-to-b from-background to-surface/40 dark:bg-background 3xl:fixed:bg-none;
+}
+
+@utility container-wrapper {
+  @apply mx-auto w-full px-2 3xl:fixed:max-w-[1600px];
+}
+
+@utility container {
+  @apply mx-auto max-w-[1400px] px-4 3xl:max-w-screen-2xl lg:px-8;
 }
