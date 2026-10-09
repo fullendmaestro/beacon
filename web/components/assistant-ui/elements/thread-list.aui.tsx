@@ -39,11 +39,14 @@ export const ThreadList: FC = () => {
 
   return (
     <ThreadListRoot>
-      <ThreadListNew />
-      {hasThreads && (
-        <ThreadListSearch value={search} onValueChange={setSearch} />
-      )}
-      <ThreadListItems searchQuery={hasThreads ? search : ""} />
+      {/* Updated to a horizontal flex row */}
+      <div className="flex flex-row items-center gap-2 pb-3 border-b border-border/40">
+        {hasThreads && (
+          <ThreadListSearch value={search} onValueChange={setSearch} />
+        )}
+        <ThreadListNew className="shrink-0 bg-primary text-primary-foreground hover:bg-primary/90" />
+      </div>
+      <ThreadListItems className="pt-2" searchQuery={hasThreads ? search : ""} />
     </ThreadListRoot>
   );
 };
@@ -56,7 +59,7 @@ export const ThreadListSearch = forwardRef<
   }
 >(({ className, value, onValueChange, ...props }, ref) => {
   return (
-    <div data-slot="aui_thread-list-search" className="relative px-0.5 py-1">
+    <div data-slot="aui_thread-list-search" className="relative flex-1 min-w-0">
       <SearchIcon
         data-slot="aui_thread-list-search-icon"
         className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2"
@@ -67,8 +70,8 @@ export const ThreadListSearch = forwardRef<
         value={value}
         onChange={(event) => onValueChange(event.target.value)}
         aria-label="Search threads"
-        placeholder="Search threads"
-        className={cn("h-8 ps-8 text-sm", className)}
+        placeholder="Search..."
+        className={cn("h-10 w-full ps-9 rounded-xl bg-background border-border text-sm shadow-sm", className)}
         {...props}
       />
     </div>
@@ -83,7 +86,7 @@ export const ThreadListRoot: FC<
   return (
     <ThreadListPrimitive.Root
       data-slot="aui_thread-list-root"
-      className={cn("flex flex-col gap-0.5", className)}
+      className={cn("flex flex-col gap-2 h-full w-full", className)}
       {...props}
     />
   );
@@ -264,23 +267,31 @@ export const ThreadListNew = forwardRef<
   ComponentPropsWithoutRef<typeof Button> & { labelClassName?: string }
 >(({ className, labelClassName, children, ...props }, ref) => {
   return (
-    <ThreadListPrimitive.New render={<Button ref={ref} variant="ghost" data-slot="aui_thread-list-new" className={cn(
-                "hover:bg-muted data-active:bg-muted h-8 justify-start gap-2 rounded-md px-2.5 text-sm font-normal",
-                className,
-              )} {...props} />}>{children ?? (
-                <>
-                  <PlusIcon
-                    data-slot="aui_thread-list-new-icon"
-                    className="size-4 shrink-0"
-                  />
-                  <span
-                    data-slot="aui_thread-list-new-label"
-                    className={cn("whitespace-nowrap", labelClassName)}
-                  >
-                    New Thread
-                  </span>
-                </>
-              )}</ThreadListPrimitive.New>
+    <ThreadListPrimitive.New render={
+      <Button 
+        ref={ref} 
+        variant="default" 
+        data-slot="aui_thread-list-new" 
+        className={cn("h-10 gap-2 rounded-xl px-4 text-sm font-medium shadow-sm", className)} 
+        {...props} 
+      />
+    }>
+      {children ?? (
+        <>
+          <PlusIcon
+            data-slot="aui_thread-list-new-icon"
+            className="size-4 shrink-0"
+          />
+          {/* Shortened text to ensure it fits nicely next to the search bar */}
+          <span
+            data-slot="aui_thread-list-new-label"
+            className={cn("whitespace-nowrap font-semibold hidden sm:inline", labelClassName)}
+          >
+            New
+          </span>
+        </>
+      )}
+    </ThreadListPrimitive.New>
   );
 });
 

@@ -13,7 +13,7 @@ export function RightPanelDrawer() {
   return (
     <div
       className={cn(
-        "flex shrink-0 flex-col rounded-3xl border border-border bg-card shadow-sm transition-[width,opacity,margin] duration-300 ease-in-out",
+        "flex h-full shrink-0 flex-col rounded-3xl border border-border bg-card shadow-sm transition-[width,opacity,margin] duration-300 ease-in-out",
         isOpen
           ? "ml-4 w-80 opacity-100 lg:w-[400px]"
           : "ml-0 w-0 overflow-hidden border-none opacity-0",
