@@ -10,8 +10,10 @@
   },
   "dependencies": {
     "@assistant-ui/react": "^0.15.25",
+    "@assistant-ui/react-langgraph": "^0.14.33",
     "@assistant-ui/react-markdown": "^0.14.19",
     "@base-ui/react": "^1.8.0",
+    "@langchain/langgraph-sdk": "^1.12.3",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "lucide-react": "^1.53.0",
