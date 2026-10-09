@@ -7,9 +7,16 @@ import {
   Lock,
   Thermometer,
   ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 const DEVICES = [
@@ -34,7 +41,7 @@ const DEVICES = [
     colorClass: "text-muted-foreground",
   },
   {
-    name: "Thermostat",
+    name: "Thermostats",
     icon: Thermometer,
     colorClass: "text-orange-600 dark:text-orange-500",
   },
@@ -68,13 +75,16 @@ export function SmartHomePanel() {
           return (
             <Card
               key={device.name}
-              className="flex h-28 cursor-pointer flex-col justify-between rounded-3xl border-transparent bg-muted/60 shadow-none transition-colors hover:bg-muted"
+              className="rounded-3xl border-transparent bg-muted/60 shadow-none transition-colors hover:bg-muted"
             >
-              <CardHeader className="p-4 pb-0">
+              <CardHeader>
                 <Icon className={cn(device.colorClass)} />
+                <CardAction className="text-muted-foreground">
+                  <ChevronRight size={16} />
+                </CardAction>{" "}
               </CardHeader>
 
-              <CardContent className="p-4 pt-0">
+              <CardContent>
                 <CardTitle className="text-sm font-medium leading-tight text-foreground">
                   {device.name}
                 </CardTitle>
