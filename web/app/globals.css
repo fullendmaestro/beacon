@@ -140,7 +140,16 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Hide scrollbars for Firefox and IE/Edge */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
+  
+  /* Hide scrollbars for WebKit/Blink (Chrome, Safari, Edge) */
+  *::-webkit-scrollbar {
+    display: none;
+  }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -189,3 +198,11 @@
 @custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
 
 @custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+
+@utility no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+  &::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+  }
+}

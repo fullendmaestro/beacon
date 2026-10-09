@@ -44,7 +44,7 @@ export function Assistant() {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <div className="h-full w-full overflow-hidden">
+      <div className="h-full w-full overflow-hidden [&_[data-radix-scroll-area-viewport]]:no-scrollbar [&_[data-aui-scroller]]:no-scrollbar">
         <Thread />
       </div>
     </AssistantRuntimeProvider>
