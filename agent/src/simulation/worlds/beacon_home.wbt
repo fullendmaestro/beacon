@@ -2075,4 +2075,33 @@ Robot {
   name "smart_home_controller"
   controller "smart_home_controller"
   supervisor TRUE
+  children [
+    Camera {
+      translation -1.9 3.2 2.2
+      rotation 0 0 1 -1.5708
+      name "Living Room Camera"
+      width 640
+      height 480
+    }
+    Camera {
+      translation 3.0 3.2 2.2
+      rotation 0 0 1 3.14159
+      name "Kitchen Camera"
+      width 640
+      height 480
+    }
+    Camera {
+      translation -1.6 -11.8 2.2
+      rotation 0 0 1 1.5708
+      name "Bedroom Camera"
+      width 640
+      height 480
+    }
+    Camera {
+      translation -6.2 -7.5 2.2
+      name "Front Door Camera"
+      width 640
+      height 480
+    }
+  ]
 }
