@@ -1,12 +1,13 @@
-# Simple Agent Template
+# Beacon Agent
 
-Minimal deployment template for a LangChain agent built with `create_agent(...)`.
+Deployment-ready LangChain agent built with `create_agent(...)` and integrated with the Smart Home FastMCP server via `MCPAdapter`.
 
-## What this template gives you
+## What this package gives you
 
-- A deployable LangGraph entrypoint at `src/simple_agent/graph.py`.
-- Two small tools (`utc_now`, `calculator`) for predictable local behavior.
-- `langgraph.json` configured for LangSmith/LangGraph deployment.
+- A deployable LangGraph entrypoint at `src/beacon_agent/graph.py`.
+- Smart Home MCP tools loaded through `MCPAdapter` (`get_lights`, `get_light_state`, `set_power_state`, `set_brightness`, `set_color`).
+- Helper tools (`utc_now`, `calculator`) for predictable local calculations and timestamps.
+- `langgraph.json` configured for `beacon_agent.graph:graph`.
 - A `uv`-managed local workflow with a small `Makefile` wrapper and starter tests.
 
 ## Quickstart
