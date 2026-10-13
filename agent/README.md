@@ -27,7 +27,7 @@ cp .env.example .env
 3. Run locally:
 
 ```bash
-uv run langgraph dev
+uv run langgraph dev --allow-blocking
 ```
 
 Optional `make` wrappers:

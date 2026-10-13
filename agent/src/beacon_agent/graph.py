@@ -13,6 +13,15 @@ from langchain.agents import create_agent
 from langchain.mcp import MCPAdapter
 from langchain_core.tools import BaseTool, tool
 
+# Preload jsonschema and its specification registry at import time (outside the async event loop).
+# This avoids blockbuster.BlockingError when mcp validates tool results inside LangGraph dev.
+try:
+    import jsonschema.validators  # noqa: F401
+    import jsonschema_specifications  # noqa: F401
+    from jsonschema_specifications import REGISTRY as _SPEC_REGISTRY  # noqa: F401
+except ImportError:
+    pass
+
 from smarthome_mcp.server import mcp as smarthome_mcp_server
 
 load_dotenv()
