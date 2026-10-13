@@ -34,4 +34,7 @@ module-name = "simple_agent"
 source-include = ["langgraph.json", ".env.example", "Makefile", "tests/**"]
 
 [tool.pyright]
-extraPaths = ["C:\\Users\\fullendmaestro\\AppData\\Local\\Programs\\Webots\\lib\\controller\\python"]
+extraPaths = [
+    "C:\\Users\\fullendmaestro\\AppData\\Local\\Programs\\Webots\\lib\\controller\\python",
+    "src/simulation/controllers/smart_home_controller",
+]

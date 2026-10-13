@@ -44,7 +44,7 @@ class SmartHomeController:
         discovered: dict[int, Any] = {}
         root = self.supervisor.getRoot()
         if root:
-            children_field = root.getField("children")
+            children_field: Any = root.getField("children")
             if children_field:
                 for idx in range(children_field.getCount()):
                     node = children_field.getMFNode(idx)
@@ -82,7 +82,7 @@ class SmartHomeController:
                 raw_color = c_field.getSFColor() if c_field else [1.0, 1.0, 1.0]
 
                 is_on = raw_intensity > 0
-                brightness_pct = int(min(100, round((raw_intensity / MAX_LIGHT_INTENSITY) * 100))) if is_on else 0
+                brightness_pct = round(min(100.0, (raw_intensity / MAX_LIGHT_INTENSITY) * 100)) if is_on else 0
 
                 self.light_states[node_id] = {
                     "id": node_id,
