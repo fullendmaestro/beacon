@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.mcp import MCPAdapter
 from langchain_core.tools import BaseTool, tool
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Preload jsonschema and its specification registry at import time (outside the async event loop).
 # This avoids blockbuster.BlockingError when mcp validates tool results inside LangGraph dev.
@@ -26,7 +27,13 @@ from smarthome_mcp.server import mcp as smarthome_mcp_server
 
 load_dotenv()
 
-DEFAULT_MODEL = os.getenv("BEACON_AGENT_MODEL", os.getenv("SIMPLE_AGENT_MODEL", "google_genai:gemini-3.8-flash"))
+model = ChatGoogleGenerativeAI(
+    model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
+    vertexai=True,
+    project=os.getenv("GOOGLE_CLOUD_PROJECT", "master-inn-505014-t1"),
+    location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+    temperature=0.2,
+)
 
 
 @tool
@@ -104,7 +111,7 @@ BEACON_SYSTEM_PROMPT = (
 )
 
 graph = create_agent(
-    model=DEFAULT_MODEL,
+    model=model,
     tools=tools,
     system_prompt=BEACON_SYSTEM_PROMPT,
     name="beacon_agent",
