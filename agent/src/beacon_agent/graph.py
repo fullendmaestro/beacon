@@ -36,43 +36,6 @@ model = ChatGoogleGenerativeAI(
 )
 
 
-@tool
-def utc_now() -> str:
-    """Return the current UTC timestamp in ISO format."""
-    return datetime.now(tz=timezone.utc).isoformat()
-
-
-@tool
-def calculator(expression: str) -> str:
-    """Evaluate a simple arithmetic expression safely.
-
-    Supported operators: +, -, *, /, %, ** and parentheses.
-    """
-    parsed = ast.parse(expression, mode="eval")
-    allowed_nodes = (
-        ast.Expression,
-        ast.BinOp,
-        ast.UnaryOp,
-        ast.Constant,
-        ast.Add,
-        ast.Sub,
-        ast.Mult,
-        ast.Div,
-        ast.Mod,
-        ast.Pow,
-        ast.USub,
-        ast.UAdd,
-        ast.Load,
-    )
-
-    for node in ast.walk(parsed):
-        if not isinstance(node, allowed_nodes):
-            raise ValueError("Expression contains unsupported syntax")
-
-    result: Any = eval(compile(parsed, "<calculator>", "eval"), {"__builtins__": {}}, {})
-    return str(result)
-
-
 async def _load_mcp_tools() -> list[BaseTool]:
     """Discover tools exposed by the Smart Home MCP Server via MCPAdapter."""
     async with MCPAdapter(smarthome_mcp_server) as adapter:
@@ -100,7 +63,7 @@ def get_smarthome_tools() -> list[BaseTool]:
 smarthome_tools = get_smarthome_tools()
 
 # Core toolset combines local helper tools and Smart Home MCP tools
-tools = [utc_now, calculator, *smarthome_tools]
+tools = [*smarthome_tools]
 
 BEACON_SYSTEM_PROMPT = (
     "You are Beacon, an intelligent smart home orchestrator and assistant. "
