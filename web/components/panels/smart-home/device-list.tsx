@@ -1,146 +1,173 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { Camera, Lightbulb, Power } from "lucide-react";
+import { useState, useRef } from "react";
+import {
+  Camera,
+  Lightbulb,
+  Lock,
+  Unlock,
+  Blinds,
+  Thermometer,
+  PlugZap,
+  Radar,
+  Sun,
+} from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useCategoryDevices } from "@/hooks/use-smart-home";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Drawer,
-  DrawerContent,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
-import { CircularSlider } from "@/components/ui/circular-slider";
+  smartHomeApi,
+  type SmartCategory,
+  type CameraDevice,
+  type LightDevice,
+  type DoorDevice,
+  type BlindDevice,
+  type ClimateDevice,
+  type ApplianceDevice,
+} from "@/lib/smart-home-api";
+import { CameraModal } from "./controls/camera-modal";
+import { LightDrawer } from "./controls/light-drawer";
+import { DoorLockDrawer } from "./controls/door-lock-drawer";
+import { BlindDrawer } from "./controls/blind-drawer";
+import { ClimateDrawer } from "./controls/climate-drawer";
+import { ApplianceDrawer } from "./controls/appliance-drawer";
 
-interface DeviceItem {
-  id: number | string;
-  name: string;
-  state: string;
-  metadata: string;
-  type: string;
-  brightness?: number;
-  color?: string;
-}
-
-const COLORS = [
-  { name: "white", hex: "#ffffff" },
-  { name: "warm white", hex: "#ffebaa" },
-  { name: "soft white", hex: "#ffd9a6" },
-  { name: "red", hex: "#ff0000" },
-  { name: "green", hex: "#00ff00" },
-  { name: "blue", hex: "#0033ff" },
-  { name: "cyan", hex: "#00ffff" },
-  { name: "magenta", hex: "#ff00ff" },
-  { name: "yellow", hex: "#ffff00" },
-  { name: "orange", hex: "#ff8000" },
-  { name: "purple", hex: "#9919e6" },
-  { name: "pink", hex: "#ff66b2" },
-];
-
-export function DeviceList({ category }: { category: string }) {
+export function DeviceList({ category }: { category: SmartCategory }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [items, setItems] = useState<DeviceItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [selectedCamera, setSelectedCamera] = useState<DeviceItem | null>(null);
-  const [selectedLight, setSelectedLight] = useState<DeviceItem | null>(null);
+  const {
+    lights,
+    setLights,
+    cameras,
+    doors,
+    setDoors,
+    blinds,
+    setBlinds,
+    climate,
+    setClimate,
+    appliances,
+    setAppliances,
+    sensors,
+    isLoading,
+    refresh,
+  } = useCategoryDevices(category);
 
-  const fetchDevices = useCallback(async () => {
-    if (category !== "Lights" && category !== "Cameras") {
-      setItems([]);
-      setIsLoading(false);
-      return;
-    }
+  const [selectedCamera, setSelectedCamera] = useState<CameraDevice | null>(
+    null,
+  );
+  const [selectedLightId, setSelectedLightId] = useState<number | null>(null);
+  const [selectedDoorId, setSelectedDoorId] = useState<string | null>(null);
+  const [selectedBlindId, setSelectedBlindId] = useState<string | null>(null);
+  const [selectedZoneId, setSelectedZoneId] = useState<number | null>(null);
+  const [selectedApplianceId, setSelectedApplianceId] = useState<string | null>(
+    null,
+  );
 
-    try {
-      const endpoint = category === "Cameras" ? "cameras" : "lights";
-      const res = await fetch(`http://127.0.0.1:8000/api/${endpoint}`);
-      if (res.ok) {
-        const data = await res.json();
-        setItems(data);
+  const selectedLight = lights.find((l) => l.id === selectedLightId) || null;
+  const selectedDoor = doors.find((d) => d.id === selectedDoorId) || null;
+  const selectedBlind = blinds.find((b) => b.id === selectedBlindId) || null;
+  const selectedZone = climate.find((c) => c.id === selectedZoneId) || null;
+  const selectedAppliance =
+    appliances.find((a) => a.id === selectedApplianceId) || null;
 
-        setSelectedLight((prev) => {
-          if (!prev) return null;
-          const updated = data.find((d: DeviceItem) => d.id === prev.id);
-          return updated || prev;
-        });
-      }
-    } catch (e) {
-      console.error("Failed to fetch devices.", e);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [category]);
+  // --- Handlers with Optimistic Updates ---
 
-  useEffect(() => {
-    fetchDevices();
-    const interval = setInterval(
-      fetchDevices,
-      category === "Cameras" ? 10000 : 2000,
-    );
-    return () => clearInterval(interval);
-  }, [fetchDevices, category]);
-
-  const toggleDevice = async (id: number | string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (category !== "Lights") return;
-
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? { ...item, state: item.state === "On" ? "Off" : "On" }
-          : item,
+  const handleToggleLight = async (id: number) => {
+    setLights((prev) =>
+      prev.map((l) =>
+        l.id === id ? { ...l, state: l.state === "On" ? "Off" : "On" } : l,
       ),
     );
-
     try {
-      await fetch(`http://127.0.0.1:8000/api/lights/${id}/toggle`, {
-        method: "POST",
-      });
-    } catch (e) {
-      fetchDevices();
+      await smartHomeApi.toggleLight(id);
+    } catch {
+      refresh();
     }
   };
 
-  const updateLightState = async (
-    id: number | string,
+  const handleUpdateLight = async (
+    id: number,
     updates: { power_state?: string; brightness?: number; color?: string },
   ) => {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === id
+    setLights((prev) =>
+      prev.map((l) =>
+        l.id === id
           ? {
-              ...item,
+              ...l,
               ...updates,
               state: updates.power_state === "off" ? "Off" : "On",
             }
-          : item,
+          : l,
       ),
     );
-    setSelectedLight((prev) =>
-      prev && prev.id === id
-        ? {
-            ...prev,
-            ...updates,
-            state: updates.power_state === "off" ? "Off" : "On",
-          }
-        : prev,
-    );
-
     try {
-      await fetch(`http://127.0.0.1:8000/api/lights/${id}/state`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-    } catch (e) {
-      fetchDevices();
+      await smartHomeApi.updateLight(id, updates);
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleUpdateDoor = async (
+    id: string,
+    payload: {
+      open_state?: "open" | "closed";
+      locked?: boolean;
+      position?: number;
+    },
+  ) => {
+    try {
+      const updated = await smartHomeApi.updateDoor(id, payload);
+      setDoors((prev) => prev.map((d) => (d.id === id ? updated : d)));
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleUpdateBlind = async (id: string, position: number) => {
+    setBlinds((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              position,
+              state: position > 0 ? "Open" : "Closed",
+              metadata: `${b.room} • ${position}% Open`,
+            }
+          : b,
+      ),
+    );
+    try {
+      await smartHomeApi.updateBlind(id, position);
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleUpdateClimate = async (
+    id: number,
+    payload: {
+      power_state?: "on" | "off";
+      target_temp?: number;
+      mode?: "heat" | "cool" | "eco" | "off";
+    },
+  ) => {
+    try {
+      const updated = await smartHomeApi.updateClimate(id, payload);
+      setClimate((prev) => prev.map((c) => (c.id === id ? updated : c)));
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleUpdateAppliance = async (
+    id: string,
+    payload: { power_state?: "on" | "off"; mode?: string },
+  ) => {
+    try {
+      const updated = await smartHomeApi.updateAppliance(id, payload);
+      setAppliances((prev) => prev.map((a) => (a.id === id ? updated : a)));
+    } catch {
+      refresh();
     }
   };
 
@@ -149,228 +176,333 @@ export function DeviceList({ category }: { category: string }) {
       ref={containerRef}
       className="relative flex h-full flex-col overflow-hidden [transform:translateZ(0)]"
     >
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-5">
         <p className="text-sm text-muted-foreground">
-          View the status and manage settings for your connected{" "}
-          {category.toLowerCase()}.
+          Tap any device to open detailed controls, or use the quick switches.
         </p>
 
-        <div className="flex flex-col gap-5">
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground animate-pulse">
-              Scanning network...
-            </p>
-          ) : items.length > 0 ? (
-            items.map((item) => {
-              const isCamera = category === "Cameras";
-              const isOn = item.state === "On" || item.state === "Online";
-              const Icon = isCamera ? Camera : Lightbulb;
-
-              return (
+        {isLoading ? (
+          <p className="animate-pulse text-sm text-muted-foreground">
+            Scanning Webots smart home bus...
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {/* 1. CAMERAS */}
+            {category === "Cameras" &&
+              cameras.map((cam) => (
                 <div
-                  key={item.id}
-                  className={cn(
-                    "flex items-center justify-between gap-3 p-2 rounded-xl transition-colors",
-                    !isCamera && "cursor-pointer hover:bg-muted/50",
-                  )}
-                  onClick={() => !isCamera && setSelectedLight(item)}
+                  key={cam.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3"
                 >
                   <div className="flex items-center gap-3">
-                    <div
-                      className={cn(
-                        "flex size-10 shrink-0 items-center justify-center rounded-lg border transition-colors duration-200",
-                        isOn && !isCamera
-                          ? "border-orange-400/30 bg-orange-400/10 dark:bg-orange-400/20"
-                          : "border-border bg-muted/30",
-                      )}
-                    >
-                      <Icon
-                        className={cn(
-                          "size-5 transition-colors duration-200",
-                          isOn && !isCamera
-                            ? "text-orange-400 dark:text-orange-500"
-                            : "text-muted-foreground",
-                        )}
-                      />
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500">
+                      <Camera className="size-5" />
                     </div>
                     <div className="flex flex-col">
-                      <span
+                      <span className="text-sm font-medium text-foreground">
+                        {cam.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {cam.state} • {cam.metadata}
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-xl text-xs font-semibold"
+                    onClick={() => setSelectedCamera(cam)}
+                  >
+                    Live View
+                  </Button>
+                </div>
+              ))}
+
+            {/* 2. LIGHTS */}
+            {category === "Lights" &&
+              lights.map((light) => {
+                const isOn = light.state === "On";
+                return (
+                  <div
+                    key={light.id}
+                    onClick={() => setSelectedLightId(light.id)}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
                         className={cn(
-                          "text-sm font-medium leading-tight capitalize transition-colors duration-200",
-                          isOn ? "text-foreground" : "text-muted-foreground",
+                          "flex size-10 items-center justify-center rounded-xl border transition-colors",
+                          isOn
+                            ? "border-amber-400/30 bg-amber-400/15 text-amber-400"
+                            : "border-border bg-muted/30 text-muted-foreground",
                         )}
                       >
-                        {item.name}
-                      </span>
-                      <span className="mt-1 text-xs text-muted-foreground">
-                        {item.state} • {item.metadata}
-                      </span>
+                        <Lightbulb className="size-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-foreground">
+                          {light.name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {light.state} • {light.brightness}%
+                        </span>
+                      </div>
                     </div>
-                  </div>
-
-                  {isCamera ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 text-xs font-semibold"
-                      onClick={() => setSelectedCamera(item)}
-                    >
-                      View
-                    </Button>
-                  ) : (
                     <div onClick={(e) => e.stopPropagation()}>
                       <Switch
-                        checked={item.state === "On"}
-                        onCheckedChange={() => toggleDevice(item.id)}
+                        checked={isOn}
+                        onCheckedChange={() => handleToggleLight(light.id)}
                       />
                     </div>
-                  )}
-                </div>
-              );
-            })
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No active devices found.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <Dialog
-        open={!!selectedCamera}
-        onOpenChange={(open) => !open && setSelectedCamera(null)}
-      >
-        <DialogContent className="sm:max-w-[600px] border-border bg-card">
-          <DialogHeader>
-            <DialogTitle className="text-foreground">
-              {selectedCamera?.name}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg border border-border bg-black">
-            {selectedCamera && (
-              <>
-                <div className="absolute left-4 top-4 z-10 flex items-center gap-2">
-                  <span className="relative flex h-3 w-3">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500"></span>
-                  </span>
-                  <span className="text-xs font-bold uppercase tracking-wider text-white drop-shadow-md">
-                    Live
-                  </span>
-                </div>
-                <img
-                  src={`http://127.0.0.1:8000/api/cameras/${encodeURIComponent(
-                    selectedCamera.name,
-                  )}/stream`}
-                  alt={`${selectedCamera.name} Feed`}
-                  className="h-full w-full object-cover"
-                />
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Drawer
-        open={!!selectedLight}
-        onOpenChange={(open) => !open && setSelectedLight(null)}
-      >
-        {/* Override the variant class to ensure corners are actually square */}
-        <DrawerContent
-          className="h-full max-h-full rounded-none border-none data-[swipe-direction=down]:rounded-none"
-          container={containerRef.current}
-        >
-          <div className="flex-1 overflow-y-auto px-4 pb-8">
-            <DrawerHeader className="text-left px-0 pt-4">
-              <DrawerTitle className="text-xl font-bold">
-                {selectedLight?.name}
-              </DrawerTitle>
-              <p className="text-sm text-muted-foreground">
-                {selectedLight?.state} • Brightness{" "}
-                {selectedLight?.brightness || 0}%
-              </p>
-            </DrawerHeader>
-
-            {selectedLight && (
-              <div className="flex flex-col items-center gap-8 py-6">
-                <CircularSlider
-                  className="w-full max-w-[260px]"
-                  value={selectedLight.brightness || 0}
-                  onChange={(val) =>
-                    updateLightState(selectedLight.id, { brightness: val })
-                  }
-                  disabled={selectedLight.state === "Off"}
-                >
-                  <div className="flex flex-col items-center justify-center mt-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className={cn(
-                        "size-20 rounded-full border-[3px] shadow-sm transition-all duration-300 pointer-events-auto",
-                        selectedLight.state === "On"
-                          ? "border-blue-500 bg-blue-50 text-blue-500 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20"
-                          : "border-muted bg-muted/30 text-muted-foreground",
-                      )}
-                      onClick={() =>
-                        updateLightState(selectedLight.id, {
-                          power_state:
-                            selectedLight.state === "On" ? "off" : "on",
-                        })
-                      }
-                    >
-                      <Power className="size-8" strokeWidth={2.5} />
-                    </Button>
-
-                    <div
-                      className={cn(
-                        "text-3xl font-extrabold tracking-tight mt-4",
-                        selectedLight.state === "On"
-                          ? "text-blue-500"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      {selectedLight.state === "On"
-                        ? `${selectedLight.brightness}%`
-                        : "Off"}
-                    </div>
                   </div>
-                </CircularSlider>
+                );
+              })}
 
-                <div className="w-full space-y-3 pt-6 border-t border-border/50">
-                  <div className="flex flex-col">
-                    <h3 className="text-sm font-medium">Color</h3>
-                    <p className="text-xs text-muted-foreground capitalize">
-                      {selectedLight.color || "Default"}
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-6 gap-3">
-                    {COLORS.map((color) => (
-                      <button
-                        key={color.name}
+            {/* 3. LOCKS, DOORS & EXTERIOR GATES */}
+            {category === "Locks & Doors" &&
+              doors.map((door) => {
+                const isOpen = door.state === "Open";
+                return (
+                  <div
+                    key={door.id}
+                    onClick={() => setSelectedDoorId(door.id)}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
                         className={cn(
-                          "size-10 rounded-full shadow-sm border-2 transition-all hover:scale-110",
-                          selectedLight.color === color.hex ||
-                            selectedLight.color === color.name
-                            ? "border-foreground scale-110"
-                            : "border-transparent",
+                          "flex size-10 items-center justify-center rounded-xl border",
+                          door.locked
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                            : "border-amber-500/30 bg-amber-500/10 text-amber-500",
                         )}
-                        style={{ backgroundColor: color.hex }}
+                      >
+                        {door.locked ? (
+                          <Lock className="size-5" />
+                        ) : (
+                          <Unlock className="size-5" />
+                        )}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-foreground">
+                          {door.name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {door.metadata}
+                        </span>
+                      </div>
+                    </div>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant={isOpen ? "default" : "outline"}
+                        size="sm"
+                        className="h-8 rounded-xl text-xs"
                         onClick={() =>
-                          updateLightState(selectedLight.id, {
-                            color: color.name,
+                          handleUpdateDoor(door.id, {
+                            open_state: isOpen ? "closed" : "open",
                           })
                         }
-                        title={color.name}
-                      />
-                    ))}
+                      >
+                        {isOpen ? "Close" : "Open"}
+                      </Button>
+                    </div>
                   </div>
+                );
+              })}
+
+            {/* 4. MOTORIZED BLINDS */}
+            {category === "Blinds" &&
+              blinds.map((blind) => {
+                const isOpen = blind.position > 0;
+                return (
+                  <div
+                    key={blind.id}
+                    onClick={() => setSelectedBlindId(blind.id)}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex size-10 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-500">
+                        <Blinds className="size-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-foreground">
+                          {blind.name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {blind.metadata}
+                        </span>
+                      </div>
+                    </div>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Switch
+                        checked={isOpen}
+                        onCheckedChange={(checked) =>
+                          handleUpdateBlind(blind.id, checked ? 100 : 0)
+                        }
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+            {/* 5. THERMOSTATS / CLIMATE ZONES */}
+            {category === "Thermostats" &&
+              climate.map((zone) => (
+                <div
+                  key={zone.id}
+                  onClick={() => setSelectedZoneId(zone.id)}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3 transition-colors hover:bg-muted/50"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-orange-500/10 text-orange-500">
+                      <Thermometer className="size-5" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-foreground">
+                        {zone.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {zone.metadata}
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-sm font-bold text-orange-500">
+                    {zone.target_temp.toFixed(1)}°C
+                  </span>
                 </div>
-              </div>
-            )}
+              ))}
+
+            {/* 6. SMART APPLIANCES & WALL PLUGS */}
+            {category === "Appliances" &&
+              appliances.map((app) => {
+                const isOn = app.state === "On";
+                return (
+                  <div
+                    key={app.id}
+                    onClick={() => setSelectedApplianceId(app.id)}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={cn(
+                          "flex size-10 items-center justify-center rounded-xl",
+                          isOn
+                            ? "bg-purple-500/15 text-purple-500"
+                            : "bg-muted/40 text-muted-foreground",
+                        )}
+                      >
+                        <PlugZap className="size-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-foreground">
+                          {app.name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {app.mode} • {app.power_watts} W
+                        </span>
+                      </div>
+                    </div>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Switch
+                        checked={isOn}
+                        onCheckedChange={(checked) =>
+                          handleUpdateAppliance(app.id, {
+                            power_state: checked ? "on" : "off",
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+            {/* 7. MOTION & DAYLIGHT SENSORS */}
+            {category === "Sensors" &&
+              sensors.map((sensor) => {
+                const isMotion = sensor.type === "MotionSensor";
+                const Icon = isMotion ? Radar : Sun;
+                return (
+                  <div
+                    key={sensor.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={cn(
+                          "flex size-10 items-center justify-center rounded-xl",
+                          sensor.triggered
+                            ? "bg-red-500/15 text-red-500"
+                            : "bg-cyan-500/10 text-cyan-500",
+                        )}
+                      >
+                        <Icon className="size-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-foreground">
+                          {sensor.name}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Raw reading: {sensor.value}
+                        </span>
+                      </div>
+                    </div>
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-xs font-semibold",
+                        sensor.triggered
+                          ? "bg-red-500/15 text-red-500"
+                          : "bg-emerald-500/15 text-emerald-500",
+                      )}
+                    >
+                      {sensor.state}
+                    </span>
+                  </div>
+                );
+              })}
           </div>
-        </DrawerContent>
-      </Drawer>
+        )}
+      </div>
+
+      {/* Interactive Modals & Drawers */}
+      <CameraModal
+        camera={selectedCamera}
+        onClose={() => setSelectedCamera(null)}
+      />
+
+      <LightDrawer
+        light={selectedLight}
+        container={containerRef.current}
+        onClose={() => setSelectedLightId(null)}
+        onUpdate={handleUpdateLight}
+      />
+
+      <DoorLockDrawer
+        door={selectedDoor}
+        container={containerRef.current}
+        onClose={() => setSelectedDoorId(null)}
+        onUpdate={handleUpdateDoor}
+      />
+
+      <BlindDrawer
+        blind={selectedBlind}
+        container={containerRef.current}
+        onClose={() => setSelectedBlindId(null)}
+        onUpdate={handleUpdateBlind}
+      />
+
+      <ClimateDrawer
+        zone={selectedZone}
+        container={containerRef.current}
+        onClose={() => setSelectedZoneId(null)}
+        onUpdate={handleUpdateClimate}
+      />
+
+      <ApplianceDrawer
+        appliance={selectedAppliance}
+        container={containerRef.current}
+        onClose={() => setSelectedApplianceId(null)}
+        onUpdate={handleUpdateAppliance}
+      />
     </div>
   );
 }
