@@ -18,9 +18,8 @@ class SmartHomeHubClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
-    async def get_lights(self) -> list[dict[str, Any]]:
-        """Fetch all light devices from the hub controller."""
-        url = f"{self.base_url}/api/lights"
+    async def _get(self, path: str) -> Any:
+        url = f"{self.base_url}{path}"
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(url)
@@ -34,40 +33,44 @@ class SmartHomeHubClient:
             raise HubConnectionError(
                 f"Hub returned error status {e.response.status_code}: {e.response.text}"
             ) from e
+
+    async def _post(self, path: str, payload: dict[str, Any] | None = None) -> Any:
+        url = f"{self.base_url}{path}"
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except httpx.RequestError as e:
+            raise HubConnectionError(
+                f"Failed to send command to hub controller at {self.base_url}: {e}"
+            ) from e
+        except httpx.HTTPStatusError as e:
+            raise HubConnectionError(
+                f"Hub returned error status {e.response.status_code}: {e.response.text}"
+            ) from e
+
+    # --- Home Summary, Scenes & Environment ---
+
+    async def get_summary(self) -> dict[str, Any]:
+        return await self._get("/api/home/summary")
+
+    async def trigger_scene(self, scene: str) -> dict[str, Any]:
+        return await self._post("/api/home/scene", {"scene": scene})
+
+    async def set_environment(self, time_of_day: str) -> dict[str, Any]:
+        return await self._post("/api/home/environment", {"time_of_day": time_of_day})
+
+    # --- Lights ---
+
+    async def get_lights(self) -> list[dict[str, Any]]:
+        return await self._get("/api/lights")
 
     async def get_light(self, node_id: int) -> dict[str, Any]:
-        """Fetch a single light device by node ID from the hub controller."""
-        url = f"{self.base_url}/api/lights/{node_id}"
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                return response.json()
-        except httpx.RequestError as e:
-            raise HubConnectionError(
-                f"Failed to connect to simulated hub controller at {self.base_url}: {e}"
-            ) from e
-        except httpx.HTTPStatusError as e:
-            raise HubConnectionError(
-                f"Hub returned error status {e.response.status_code}: {e.response.text}"
-            ) from e
+        return await self._get(f"/api/lights/{node_id}")
 
     async def toggle_light(self, node_id: int) -> dict[str, Any]:
-        """Toggle power state for a specific light node ID."""
-        url = f"{self.base_url}/api/lights/{node_id}/toggle"
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url)
-                response.raise_for_status()
-                return response.json()
-        except httpx.RequestError as e:
-            raise HubConnectionError(
-                f"Failed to toggle light {node_id} on hub controller at {self.base_url}: {e}"
-            ) from e
-        except httpx.HTTPStatusError as e:
-            raise HubConnectionError(
-                f"Hub returned error status {e.response.status_code}: {e.response.text}"
-            ) from e
+        return await self._post(f"/api/lights/{node_id}/toggle")
 
     async def set_light_state(
         self,
@@ -76,7 +79,6 @@ class SmartHomeHubClient:
         brightness_level: int | None = None,
         color: str | None = None,
     ) -> dict[str, Any]:
-        """Set explicit light state (power, brightness, color) on the hub controller."""
         payload: dict[str, Any] = {}
         if power_state is not None:
             payload["power_state"] = power_state.lower()
@@ -84,21 +86,80 @@ class SmartHomeHubClient:
             payload["brightness"] = brightness_level
         if color is not None:
             payload["color"] = color
+        return await self._post(f"/api/lights/{node_id}/state", payload)
 
-        url = f"{self.base_url}/api/lights/{node_id}/state"
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
-                if response.status_code in (404, 405):
-                    # Fallback for older controllers only exposing /toggle
-                    return await self.toggle_light(node_id)
-                response.raise_for_status()
-                return response.json()
-        except httpx.RequestError as e:
-            raise HubConnectionError(
-                f"Failed to set light state on hub controller at {self.base_url}: {e}"
-            ) from e
-        except httpx.HTTPStatusError as e:
-            raise HubConnectionError(
-                f"Hub returned error status {e.response.status_code}: {e.response.text}"
-            ) from e
+    # --- Doors, Locks, Garage Door & Driveway Gate ---
+
+    async def get_doors(self) -> list[dict[str, Any]]:
+        return await self._get("/api/doors")
+
+    async def set_door_state(
+        self,
+        door_id: str,
+        open_state: str | None = None,
+        locked: bool | None = None,
+        position: int | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if open_state is not None:
+            payload["open_state"] = open_state.lower()
+        if locked is not None:
+            payload["locked"] = locked
+        if position is not None:
+            payload["position"] = position
+        return await self._post(f"/api/doors/{door_id}/state", payload)
+
+    # --- Motorized Window Blinds ---
+
+    async def get_blinds(self) -> list[dict[str, Any]]:
+        return await self._get("/api/blinds")
+
+    async def set_blind_state(self, blind_id: str, position: int) -> dict[str, Any]:
+        return await self._post(f"/api/blinds/{blind_id}/state", {"position": position})
+
+    # --- Climate / HVAC Zones ---
+
+    async def get_climate_zones(self) -> list[dict[str, Any]]:
+        return await self._get("/api/climate")
+
+    async def set_climate_state(
+        self,
+        zone_id: int,
+        power_state: str | None = None,
+        target_temp: float | None = None,
+        mode: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if power_state is not None:
+            payload["power_state"] = power_state.lower()
+        if target_temp is not None:
+            payload["target_temp"] = target_temp
+        if mode is not None:
+            payload["mode"] = mode.lower()
+        return await self._post(f"/api/climate/{zone_id}/state", payload)
+
+    # --- Smart Appliances & Wall Plugs ---
+
+    async def get_appliances(self) -> list[dict[str, Any]]:
+        return await self._get("/api/appliances")
+
+    async def set_appliance_state(
+        self,
+        appliance_id: str,
+        power_state: str | None = None,
+        mode: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if power_state is not None:
+            payload["power_state"] = power_state.lower()
+        if mode is not None:
+            payload["mode"] = mode
+        return await self._post(f"/api/appliances/{appliance_id}/state", payload)
+
+    # --- Sensors & Cameras ---
+
+    async def get_sensors(self) -> list[dict[str, Any]]:
+        return await self._get("/api/sensors")
+
+    async def get_cameras(self) -> list[dict[str, Any]]:
+        return await self._get("/api/cameras")

@@ -19,8 +19,33 @@ def test_utc_now_tool() -> None:
 
 
 def test_smarthome_tools_loaded() -> None:
-    tool_names = [t.name for t in smarthome_tools]
-    assert "get_lights" in tool_names
-    assert "set_power_state" in tool_names
-    assert len(tools) >= 7
-
+    tool_names = {t.name for t in smarthome_tools}
+    expected_tools = {
+        # Lights
+        "get_lights",
+        "get_light_state",
+        "set_power_state",
+        "set_brightness",
+        "set_color",
+        # Access (Doors, Garage, Gate)
+        "get_doors",
+        "set_door_state",
+        "set_door_lock",
+        # Blinds
+        "get_blinds",
+        "set_blind_position",
+        # Climate
+        "get_climate_zones",
+        "set_climate_state",
+        # Appliances
+        "get_appliances",
+        "set_appliance_state",
+        # Whole-Home, Sensors & Scenes
+        "get_home_summary",
+        "get_sensors",
+        "get_cameras",
+        "trigger_scene",
+        "set_environment",
+    }
+    assert expected_tools.issubset(tool_names)
+    assert len(tools) >= 21
