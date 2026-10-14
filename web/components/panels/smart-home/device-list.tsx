@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Camera, Lightbulb, Power } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,7 @@ const COLORS = [
 ];
 
 export function DeviceList({ category }: { category: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<DeviceItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedCamera, setSelectedCamera] = useState<DeviceItem | null>(null);
@@ -144,7 +145,10 @@ export function DeviceList({ category }: { category: string }) {
   };
 
   return (
-    <>
+    <div
+      ref={containerRef}
+      className="relative flex h-full flex-col overflow-hidden [transform:translateZ(0)]"
+    >
       <div className="flex flex-col gap-6">
         <p className="text-sm text-muted-foreground">
           View the status and manage settings for your connected{" "}
@@ -270,8 +274,12 @@ export function DeviceList({ category }: { category: string }) {
       <Drawer
         open={!!selectedLight}
         onOpenChange={(open) => !open && setSelectedLight(null)}
+        modal={false}
       >
-        <DrawerContent className="px-4 pb-8">
+        <DrawerContent
+          className="absolute bottom-0 px-4 pb-8"
+          container={containerRef.current}
+        >
           <DrawerHeader className="text-left px-0">
             <DrawerTitle className="text-xl font-bold">
               {selectedLight?.name}
@@ -361,6 +369,6 @@ export function DeviceList({ category }: { category: string }) {
           )}
         </DrawerContent>
       </Drawer>
-    </>
+    </div>
   );
 }
