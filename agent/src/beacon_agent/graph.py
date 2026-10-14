@@ -7,6 +7,7 @@ import asyncio
 import operator
 import os
 from datetime import UTC, datetime
+from typing import Any
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
@@ -27,7 +28,7 @@ from smarthome_mcp.server import mcp as smarthome_mcp_server
 
 load_dotenv()
 
-_SAFE_OPERATORS = {
+_SAFE_BIN_OPS: dict[type[ast.operator], Any] = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
@@ -35,6 +36,9 @@ _SAFE_OPERATORS = {
     ast.FloorDiv: operator.floordiv,
     ast.Mod: operator.mod,
     ast.Pow: operator.pow,
+}
+
+_SAFE_UNARY_OPS: dict[type[ast.unaryop], Any] = {
     ast.USub: operator.neg,
     ast.UAdd: operator.pos,
 }
@@ -45,10 +49,10 @@ def _eval_ast(node: ast.AST) -> float | int:
         return _eval_ast(node.body)
     if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
         return node.value
-    if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_OPERATORS:
-        return _SAFE_OPERATORS[type(node.op)](_eval_ast(node.left), _eval_ast(node.right))
-    if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_OPERATORS:
-        return _SAFE_OPERATORS[type(node.op)](_eval_ast(node.operand))
+    if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BIN_OPS:
+        return _SAFE_BIN_OPS[type(node.op)](_eval_ast(node.left), _eval_ast(node.right))
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_UNARY_OPS:
+        return _SAFE_UNARY_OPS[type(node.op)](_eval_ast(node.operand))
     raise ValueError(f"Unsupported arithmetic expression: {ast.dump(node)}")
 
 
