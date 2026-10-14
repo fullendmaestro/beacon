@@ -6,7 +6,7 @@ import ast
 import asyncio
 import operator
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
@@ -68,7 +68,7 @@ def calculator(expression: str) -> str:
 @tool
 def utc_now() -> str:
     """Return the current UTC timestamp in ISO-8601 format."""
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 model = ChatGoogleGenerativeAI(
