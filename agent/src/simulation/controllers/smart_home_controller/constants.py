@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-# Constants
 MAX_LIGHT_INTENSITY = 3.0
 SUPPORTED_LIGHT_TYPES = {"CeilingLight", "FloorLight", "CeilingSpotLight"}
 
@@ -11,7 +10,81 @@ CAMERA_NAMES = [
     "Kitchen Camera",
     "Bedroom Camera",
     "Front Door Camera",
+    "Driveway Camera",
+    "Backyard Patio Camera",
 ]
+
+MOTION_SENSOR_NAMES = [
+    "Front Porch Motion Sensor",
+    "Living Room Motion Sensor",
+    "Hallway Motion Sensor",
+    "Driveway Gate Motion Sensor",
+]
+
+LIGHT_SENSOR_NAMES = [
+    "Exterior Daylight Sensor",
+]
+
+# DEF nodes for custom motorized blinds/shades: (DEF_NAME, friendly_name, closed_z, open_z)
+BLIND_DEFS: dict[str, dict[str, float | str]] = {
+    "BLIND_LIVING_WEST": {
+        "name": "Living Room West Blind",
+        "room": "Living Room",
+        "closed_z": 1.25,
+        "open_z": 2.28,
+    },
+    "BLIND_LIVING_NORTH": {
+        "name": "Living Room North Blind",
+        "room": "Living Room",
+        "closed_z": 1.25,
+        "open_z": 2.28,
+    },
+    "BLIND_MASTER_BEDROOM": {
+        "name": "Master Bedroom Blind",
+        "room": "Master Bedroom",
+        "closed_z": 1.25,
+        "open_z": 2.28,
+    },
+    "BLIND_STUDY_BEDROOM": {
+        "name": "Study Bedroom Blind",
+        "room": "Study Bedroom",
+        "closed_z": 1.25,
+        "open_z": 2.28,
+    },
+}
+
+# Exterior motorized barriers
+EXTERIOR_BARRIER_DEFS: dict[str, dict[str, float | str]] = {
+    "DRIVEWAY_GATE": {
+        "name": "Driveway Gate",
+        "type": "SlidingGate",
+        "axis": "x",
+        "closed_pos": 2.1,
+        "open_pos": -1.6,
+    },
+    "GARAGE_DOOR": {
+        "name": "Garage Door",
+        "type": "OverheadGarageDoor",
+        "axis": "z",
+        "closed_pos": 1.15,
+        "open_pos": 2.30,
+    },
+}
+
+# Default Smart Appliances & Plugs tracked by Supervisor
+APPLIANCE_DEFAULTS: dict[str, dict[str, str | float]] = {
+    "Living Room Smart TV": {"type": "Television", "room": "Living Room", "mode": "Standby", "wattage": 120.0},
+    "Smart Fridge": {"type": "Fridge", "room": "Kitchen", "mode": "Eco Cooling (3°C)", "wattage": 180.0},
+    "Smart Oven": {"type": "Oven", "room": "Kitchen", "mode": "Off", "wattage": 2400.0},
+    "Smart Microwave": {"type": "Microwave", "room": "Kitchen", "mode": "Ready", "wattage": 1100.0},
+    "Induction Cooktop": {"type": "Cooktop", "room": "Kitchen", "mode": "Off", "wattage": 1800.0},
+    "Smart Washer": {"type": "WashingMachine", "room": "Utility", "mode": "Idle", "wattage": 850.0},
+    "Smart Patio Grill": {"type": "Barbecue", "room": "Patio", "mode": "Off", "wattage": 1500.0},
+    "Dining Smart Plug": {"type": "WallPlug", "room": "Dining Room", "mode": "On", "wattage": 45.0},
+    "Living Room Smart Plug": {"type": "WallPlug", "room": "Living Room", "mode": "On", "wattage": 60.0},
+    "Kitchen Island Smart Plug": {"type": "WallPlug", "room": "Kitchen", "mode": "On", "wattage": 90.0},
+    "Foyer Smart Plug": {"type": "WallPlug", "room": "Foyer", "mode": "On", "wattage": 25.0},
+}
 
 COLOR_NAMES_MAP: dict[str, list[float]] = {
     "white": [1.0, 1.0, 1.0],
