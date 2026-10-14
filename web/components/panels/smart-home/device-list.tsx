@@ -274,99 +274,101 @@ export function DeviceList({ category }: { category: string }) {
       <Drawer
         open={!!selectedLight}
         onOpenChange={(open) => !open && setSelectedLight(null)}
-        modal={false}
       >
+        {/* Override the variant class to ensure corners are actually square */}
         <DrawerContent
-          className="absolute bottom-0 px-4 pb-8"
+          className="h-full max-h-full rounded-none border-none data-[swipe-direction=down]:rounded-none"
           container={containerRef.current}
         >
-          <DrawerHeader className="text-left px-0">
-            <DrawerTitle className="text-xl font-bold">
-              {selectedLight?.name}
-            </DrawerTitle>
-            <p className="text-sm text-muted-foreground">
-              {selectedLight?.state} • Brightness{" "}
-              {selectedLight?.brightness || 0}%
-            </p>
-          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-8">
+            <DrawerHeader className="text-left px-0 pt-4">
+              <DrawerTitle className="text-xl font-bold">
+                {selectedLight?.name}
+              </DrawerTitle>
+              <p className="text-sm text-muted-foreground">
+                {selectedLight?.state} • Brightness{" "}
+                {selectedLight?.brightness || 0}%
+              </p>
+            </DrawerHeader>
 
-          {selectedLight && (
-            <div className="flex flex-col items-center gap-8 py-6">
-              <CircularSlider
-                className="w-full max-w-[260px]"
-                value={selectedLight.brightness || 0}
-                onChange={(val) =>
-                  updateLightState(selectedLight.id, { brightness: val })
-                }
-                disabled={selectedLight.state === "Off"}
-              >
-                <div className="flex flex-col items-center justify-center mt-2">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={cn(
-                      "size-20 rounded-full border-[3px] shadow-sm transition-all duration-300 pointer-events-auto",
-                      selectedLight.state === "On"
-                        ? "border-blue-500 bg-blue-50 text-blue-500 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20"
-                        : "border-muted bg-muted/30 text-muted-foreground",
-                    )}
-                    onClick={() =>
-                      updateLightState(selectedLight.id, {
-                        power_state:
-                          selectedLight.state === "On" ? "off" : "on",
-                      })
-                    }
-                  >
-                    <Power className="size-8" strokeWidth={2.5} />
-                  </Button>
-
-                  <div
-                    className={cn(
-                      "text-3xl font-extrabold tracking-tight mt-4",
-                      selectedLight.state === "On"
-                        ? "text-blue-500"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    {selectedLight.state === "On"
-                      ? `${selectedLight.brightness}%`
-                      : "Off"}
-                  </div>
-                </div>
-              </CircularSlider>
-
-              <div className="w-full space-y-3 pt-6 border-t border-border/50">
-                <div className="flex flex-col">
-                  <h3 className="text-sm font-medium">Color</h3>
-                  <p className="text-xs text-muted-foreground capitalize">
-                    {selectedLight.color || "Default"}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-6 gap-3">
-                  {COLORS.map((color) => (
-                    <button
-                      key={color.name}
+            {selectedLight && (
+              <div className="flex flex-col items-center gap-8 py-6">
+                <CircularSlider
+                  className="w-full max-w-[260px]"
+                  value={selectedLight.brightness || 0}
+                  onChange={(val) =>
+                    updateLightState(selectedLight.id, { brightness: val })
+                  }
+                  disabled={selectedLight.state === "Off"}
+                >
+                  <div className="flex flex-col items-center justify-center mt-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
                       className={cn(
-                        "size-10 rounded-full shadow-sm border-2 transition-all hover:scale-110",
-                        selectedLight.color === color.hex ||
-                          selectedLight.color === color.name
-                          ? "border-foreground scale-110"
-                          : "border-transparent",
+                        "size-20 rounded-full border-[3px] shadow-sm transition-all duration-300 pointer-events-auto",
+                        selectedLight.state === "On"
+                          ? "border-blue-500 bg-blue-50 text-blue-500 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20"
+                          : "border-muted bg-muted/30 text-muted-foreground",
                       )}
-                      style={{ backgroundColor: color.hex }}
                       onClick={() =>
                         updateLightState(selectedLight.id, {
-                          color: color.name,
+                          power_state:
+                            selectedLight.state === "On" ? "off" : "on",
                         })
                       }
-                      title={color.name}
-                    />
-                  ))}
+                    >
+                      <Power className="size-8" strokeWidth={2.5} />
+                    </Button>
+
+                    <div
+                      className={cn(
+                        "text-3xl font-extrabold tracking-tight mt-4",
+                        selectedLight.state === "On"
+                          ? "text-blue-500"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {selectedLight.state === "On"
+                        ? `${selectedLight.brightness}%`
+                        : "Off"}
+                    </div>
+                  </div>
+                </CircularSlider>
+
+                <div className="w-full space-y-3 pt-6 border-t border-border/50">
+                  <div className="flex flex-col">
+                    <h3 className="text-sm font-medium">Color</h3>
+                    <p className="text-xs text-muted-foreground capitalize">
+                      {selectedLight.color || "Default"}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-6 gap-3">
+                    {COLORS.map((color) => (
+                      <button
+                        key={color.name}
+                        className={cn(
+                          "size-10 rounded-full shadow-sm border-2 transition-all hover:scale-110",
+                          selectedLight.color === color.hex ||
+                            selectedLight.color === color.name
+                            ? "border-foreground scale-110"
+                            : "border-transparent",
+                        )}
+                        style={{ backgroundColor: color.hex }}
+                        onClick={() =>
+                          updateLightState(selectedLight.id, {
+                            color: color.name,
+                          })
+                        }
+                        title={color.name}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </DrawerContent>
       </Drawer>
     </div>
