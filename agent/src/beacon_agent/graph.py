@@ -24,6 +24,7 @@ try:
 except ImportError:
     pass
 
+from rover_mcp.server import rover_mcp as rover_mcp_server
 from smarthome_mcp.server import mcp as smarthome_mcp_server
 
 load_dotenv()
@@ -84,14 +85,19 @@ model = ChatGoogleGenerativeAI(
 )
 
 
-async def _load_mcp_tools() -> list[BaseTool]:
-    """Discover tools exposed by the Smart Home MCP Server via MCPAdapter."""
-    async with MCPAdapter(smarthome_mcp_server) as adapter:
-        return await adapter.list_tools()
+async def _load_all_mcp_tools() -> list[BaseTool]:
+    """Discover tools exposed by both the Smart Home MCP Server and the Rover MCP Server."""
+    async with (
+        MCPAdapter(smarthome_mcp_server) as home_adapter,
+        MCPAdapter(rover_mcp_server) as rover_adapter,
+    ):
+        home_tools = await home_adapter.list_tools()
+        rover_tools = await rover_adapter.list_tools()
+        return [*home_tools, *rover_tools]
 
 
-def get_smarthome_tools() -> list[BaseTool]:
-    """Retrieve smart home tools synchronously using an event loop."""
+def get_all_mcp_tools() -> list[BaseTool]:
+    """Retrieve Smart Home and Rover MCP tools synchronously using an event loop."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -101,28 +107,29 @@ def get_smarthome_tools() -> list[BaseTool]:
         import nest_asyncio
 
         nest_asyncio.apply()
-        return asyncio.run(_load_mcp_tools())
-    return asyncio.run(_load_mcp_tools())
+        return asyncio.run(_load_all_mcp_tools())
+    return asyncio.run(_load_all_mcp_tools())
 
 
-# Load tools from MCP server
-smarthome_tools = get_smarthome_tools()
-
-# Core toolset combines local helper tools and Smart Home MCP tools
-tools = [calculator, utc_now, *smarthome_tools]
+mcp_tools = get_all_mcp_tools()
+tools = [calculator, utc_now, *mcp_tools]
 
 BEACON_SYSTEM_PROMPT = (
-    "You are Beacon, an intelligent smart home orchestrator and assistant for a connected Webots 3D estate. "
-    "You have real-time control and telemetry across the entire property via your Smart Home MCP tools:\n"
-    "- **Overview, Scenes & Sky**: `get_home_summary`, `trigger_scene` ('morning', 'movie', 'away', 'night'), "
-    "`set_environment` ('day', 'sunset', 'night').\n"
-    "- **Smart Lighting**: `get_lights`, `get_light_state`, `set_power_state`, `set_brightness`, `set_color`.\n"
-    "- **Doors, Locks, Garage & Driveway Gate**: `get_doors`, `set_door_state`, `set_door_lock`.\n"
-    "- **Motorized Window Blinds**: `get_blinds`, `set_blind_position` (0-100%).\n"
-    "- **HVAC / Climate Zones**: `get_climate_zones`, `set_climate_state` (15-30°C, 'heat', 'cool', 'eco', 'off').\n"
-    "- **Smart Appliances & Plugs**: `get_appliances`, `set_appliance_state` (TV, Fridge, Oven, Microwave, Cooktop, Washer, Grill, Plugs).\n"
-    "- **Security Cameras & Sensors**: `get_cameras`, `get_sensors` (Motion sensors & roof daylight sensor).\n\n"
-    "Always invoke the appropriate tools to inspect state or actuate devices when answering user requests, "
+    "You are Beacon, an intelligent smart home orchestrator and robotic fleet commander for a connected Webots 3D estate. "
+    "You have real-time control and telemetry across two MCP tool suites:\n"
+    "1. **Smart Home MCP (`smarthome_mcp`)**:\n"
+    "   - Overview, Scenes & Sky: `get_home_summary`, `trigger_scene` ('morning', 'movie', 'away', 'night'), `set_environment`.\n"
+    "   - Smart Lighting: `get_lights`, `get_light_state`, `set_power_state`, `set_brightness`, `set_color`.\n"
+    "   - Doors, Locks, Garage & Driveway Gate: `get_doors`, `set_door_state`, `set_door_lock`.\n"
+    "   - Motorized Window Blinds: `get_blinds`, `set_blind_position` (0-100%).\n"
+    "   - HVAC / Climate Zones: `get_climate_zones`, `set_climate_state`.\n"
+    "   - Smart Appliances & Plugs: `get_appliances`, `set_appliance_state`.\n"
+    "   - Security Cameras & Sensors: `get_cameras`, `get_sensors`.\n"
+    "2. **Autonomous Rover MCP (`rover_mcp` - KUKA youBot)**:\n"
+    "   - Telemetry & Pose: `get_rover_telemetry`.\n"
+    "   - Autonomous Navigation: `navigate_rover_to_room` ('foyer', 'living_room', 'dining_room', 'kitchen', 'hallway', 'master_bedroom', 'study_bedroom', 'patrol'), `navigate_rover_to_pose`, `stop_rover`.\n"
+    "   - Mobile Manipulation & Teleop: `set_rover_arm_pose`, `set_rover_gripper`, `drive_rover_velocity`.\n\n"
+    "Always invoke the appropriate tools to inspect state or actuate devices/robots when answering user requests, "
     "and respond clearly and concisely."
 )
 

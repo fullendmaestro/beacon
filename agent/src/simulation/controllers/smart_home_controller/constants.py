@@ -1,6 +1,8 @@
+# agent/src/simulation/controllers/smart_home_controller/constants.py
 from __future__ import annotations
 
 import re
+from typing import Any
 
 MAX_LIGHT_INTENSITY = 3.0
 SUPPORTED_LIGHT_TYPES = {"CeilingLight", "FloorLight", "CeilingSpotLight"}
@@ -25,7 +27,6 @@ LIGHT_SENSOR_NAMES = [
     "Exterior Daylight Sensor",
 ]
 
-# DEF nodes for custom motorized blinds/shades: (DEF_NAME, friendly_name, closed_z, open_z)
 BLIND_DEFS: dict[str, dict[str, float | str]] = {
     "BLIND_LIVING_WEST": {
         "name": "Living Room West Blind",
@@ -53,7 +54,6 @@ BLIND_DEFS: dict[str, dict[str, float | str]] = {
     },
 }
 
-# Exterior motorized barriers
 EXTERIOR_BARRIER_DEFS: dict[str, dict[str, float | str]] = {
     "DRIVEWAY_GATE": {
         "name": "Driveway Gate",
@@ -71,7 +71,6 @@ EXTERIOR_BARRIER_DEFS: dict[str, dict[str, float | str]] = {
     },
 }
 
-# Default Smart Appliances & Plugs tracked by Supervisor
 APPLIANCE_DEFAULTS: dict[str, dict[str, str | float]] = {
     "Living Room Smart TV": {"type": "Television", "room": "Living Room", "mode": "Standby", "wattage": 120.0},
     "Smart Fridge": {"type": "Fridge", "room": "Kitchen", "mode": "Eco Cooling (3°C)", "wattage": 180.0},
@@ -84,6 +83,51 @@ APPLIANCE_DEFAULTS: dict[str, dict[str, str | float]] = {
     "Living Room Smart Plug": {"type": "WallPlug", "room": "Living Room", "mode": "On", "wattage": 60.0},
     "Kitchen Island Smart Plug": {"type": "WallPlug", "room": "Kitchen", "mode": "On", "wattage": 90.0},
     "Foyer Smart Plug": {"type": "WallPlug", "room": "Foyer", "mode": "On", "wattage": 25.0},
+}
+
+ROVER_WAYPOINTS: dict[str, dict[str, Any]] = {
+    "foyer": {
+        "name": "Foyer Dock",
+        "room": "Foyer",
+        "pose": [-3.1, -7.5, 1.57],
+        "door_name": None,
+    },
+    "living_room": {
+        "name": "Living Room Center",
+        "room": "Living Room",
+        "pose": [-6.0, -4.2, 1.57],
+        "door_name": None,
+    },
+    "dining_room": {
+        "name": "Dining Area",
+        "room": "Dining Room",
+        "pose": [-9.2, -1.8, 3.14],
+        "door_name": None,
+    },
+    "kitchen": {
+        "name": "Kitchen Island",
+        "room": "Kitchen",
+        "pose": [-1.8, -3.95, 0.0],
+        "door_name": "Kitchen Passage Door",
+    },
+    "hallway": {
+        "name": "West Corridor",
+        "room": "Corridor",
+        "pose": [-5.3, -7.5, 3.14],
+        "door_name": None,
+    },
+    "master_bedroom": {
+        "name": "Master Bedroom",
+        "room": "Master Bedroom",
+        "pose": [-2.15, -9.6, -1.57],
+        "door_name": "Master Bedroom Door",
+    },
+    "study_bedroom": {
+        "name": "Study Bedroom",
+        "room": "Study Bedroom",
+        "pose": [-6.24, -9.8, -1.57],
+        "door_name": "Study Bedroom Door",
+    },
 }
 
 COLOR_NAMES_MAP: dict[str, list[float]] = {
@@ -109,7 +153,6 @@ class ColorUtils:
 
     @staticmethod
     def parse(color: str | list[float]) -> list[float]:
-        """Convert friendly name, hex string, or float RGB list to clamped [r, g, b]."""
         if isinstance(color, list) and len(color) == 3:
             return [max(0.0, min(1.0, float(c))) for c in color]
 
@@ -131,7 +174,6 @@ class ColorUtils:
 
     @staticmethod
     def to_hex(rgb: list[float]) -> str:
-        """Convert float RGB list to hex string #RRGGBB."""
         r = int(max(0.0, min(1.0, rgb[0])) * 255)
         g = int(max(0.0, min(1.0, rgb[1])) * 255)
         b = int(max(0.0, min(1.0, rgb[2])) * 255)

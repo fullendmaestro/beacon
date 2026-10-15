@@ -13,13 +13,16 @@ from models import (
     DoorUpdateRequest,
     EnvironmentUpdateRequest,
     LightStateUpdateRequest,
+    RoverControlRequest,
+    RoverNavigateRequest,
+    RoverPoseRequest,
     SceneTriggerRequest,
 )
 
 
 def create_app(controller: SmartHomeController) -> FastAPI:
-    """Create and configure the FastAPI app for the Smart Home Hub."""
-    app = FastAPI(title="Beacon Simulated Smart Home Hub Controller", version="2.0.0")
+    """Create and configure the FastAPI app for the Smart Home Hub & Rover Supervisor."""
+    app = FastAPI(title="Beacon Simulated Smart Home Hub Controller", version="2.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -136,5 +139,23 @@ def create_app(controller: SmartHomeController) -> FastAPI:
             controller.stream_camera(name),
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
+
+    # --- Autonomous Mobile Robot (Beacon KUKA youBot) ---
+
+    @app.get("/api/rover")
+    def get_rover() -> dict[str, Any]:
+        return controller.get_rover_state()
+
+    @app.post("/api/rover/navigate")
+    def navigate_rover(req: RoverNavigateRequest) -> dict[str, Any]:
+        return controller.request_rover_navigation(req.destination)
+
+    @app.post("/api/rover/goto_pose")
+    def goto_rover_pose(req: RoverPoseRequest) -> dict[str, Any]:
+        return controller.request_rover_pose(req.x, req.y, req.yaw)
+
+    @app.post("/api/rover/control")
+    def control_rover(req: RoverControlRequest) -> dict[str, Any]:
+        return controller.request_rover_control(req.model_dump(exclude_none=True))
 
     return app

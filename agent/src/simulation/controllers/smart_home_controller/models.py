@@ -40,3 +40,39 @@ class SceneTriggerRequest(BaseModel):
     scene: Literal["morning", "away", "movie", "night"] = Field(
         ..., description="Smart home automation scene preset"
     )
+
+
+class RoverNavigateRequest(BaseModel):
+    destination: Literal[
+        "foyer",
+        "living_room",
+        "dining_room",
+        "kitchen",
+        "hallway",
+        "master_bedroom",
+        "study_bedroom",
+        "patrol",
+    ] = Field(..., description="Target room key or 'patrol' to tour the estate")
+
+
+class RoverPoseRequest(BaseModel):
+    x: float = Field(..., description="Target Webots X coordinate in meters")
+    y: float = Field(..., description="Target Webots Y coordinate in meters")
+    yaw: float = Field(0.0, description="Target heading angle in radians")
+
+
+class RoverControlRequest(BaseModel):
+    action: Literal["stop", "arm", "gripper", "velocity"] = Field(..., description="Rover control action")
+    arm_pose: Literal[
+        "reset",
+        "front_floor",
+        "front_box",
+        "front_plate",
+        "back_plate_high",
+        "back_plate_low",
+        "inspect_high",
+    ] | None = Field(None, description="5-DOF arm preset pose")
+    gripper_state: Literal["grip", "release"] | None = Field(None, description="Gripper finger state")
+    vx: float | None = Field(None, ge=-0.3, le=0.3, description="Forward speed m/s")
+    vy: float | None = Field(None, ge=-0.3, le=0.3, description="Strafe left speed m/s")
+    omega: float | None = Field(None, ge=-1.0, le=1.0, description="Angular velocity rad/s")
