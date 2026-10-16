@@ -95,7 +95,20 @@ class RoverManager:
             if door_name:
                 access_mgr.open_door_by_name(door_name)
 
-            route = [[-3.5, -7.5, 1.57], wp_cfg["pose"]]
+            # Build a per-destination route that avoids the staircase/radiator corner.
+            # Kitchen and bedrooms lie in the +Y direction from the foyer dock —
+            # route via an open foyer centre point [-2.5, -5.8] to stay clear of
+            # the staircase wall and radiator at [-3.5, -7.5].
+            # Living/dining/hallway destinations sit to the W/NW so the original
+            # corridor intermediate still works for those.
+            FOYER_CENTRE   = [-2.5, -5.8, 1.57]  # open foyer centre, clear of stairs
+            FOYER_CORRIDOR = [-3.5, -7.5, 1.57]  # original (good for W/N rooms)
+
+            if dest in ("kitchen", "master_bedroom", "study_bedroom"):
+                route = [FOYER_CENTRE, wp_cfg["pose"]]
+            else:
+                route = [FOYER_CORRIDOR, wp_cfg["pose"]]
+
             self._send_packet({"action": "goto", "waypoints": route})
             self.rover_state["status"] = "Navigating"
             self.rover_state["target_destination"] = wp_cfg["name"]
