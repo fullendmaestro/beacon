@@ -26,6 +26,7 @@ export function Sidebar() {
         return (
           <Button
             key={item.id}
+            data-testid={`nav-${item.id}`}
             variant="ghost"
             size="icon"
             className={cn(
