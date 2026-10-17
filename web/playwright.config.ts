@@ -1,10 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 import path from "path";
 
-export const ARTIFACTS_ROOT = path.resolve(__dirname, "../artifacts");
+export const ARTIFACTS_ROOT = path.resolve(process.cwd(), "../artifacts");
 
 export default defineConfig({
   testDir: "./e2e/specs",
+  testMatch: "**/*.spec.ts",
   timeout: 120_000,
   expect: {
     timeout: 30_000,

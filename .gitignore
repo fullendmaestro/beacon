@@ -1,4 +1,5 @@
 .ignore
+artifacts
 
 # Webots files
 *.wbproj

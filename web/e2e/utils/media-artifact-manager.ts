@@ -7,7 +7,7 @@ export class MediaArtifactManager {
   private readonly frontendVideosDir: string;
 
   constructor(private readonly scenarioName: string) {
-    const root = path.resolve(__dirname, "../../../artifacts");
+    const root = path.resolve(process.cwd(), "../artifacts");
     this.screenshotsDir = path.join(root, "screenshots", scenarioName);
     this.frontendVideosDir = path.join(root, "videos", "frontend");
   }
@@ -34,7 +34,6 @@ export class MediaArtifactManager {
     const video = page.video();
     if (!video) return null;
 
-    // Close the page so Playwright flushes the WebM video stream to disk
     await page.close();
 
     const targetVideoPath = path.join(

@@ -70,12 +70,11 @@ test.describe("Beacon Capability Demo: Smart Light Control & Rover Tracking", ()
       expect(recResult.video_path).toBe(webotsVideoPath);
       expect(fs.existsSync(webotsVideoPath)).toBeTruthy();
 
-      const frontendVideoPath = await media.finalizeFrontendVideo(
-        page,
-        testInfo,
-      );
-      expect(frontendVideoPath).not.toBeNull();
-      expect(fs.existsSync(frontendVideoPath!)).toBeTruthy();
+      const frontendVideoPath = await media.finalizeFrontendVideo(page, testInfo);
+      if (!frontendVideoPath) {
+        throw new Error("Frontend video was not saved");
+      }
+      expect(fs.existsSync(frontendVideoPath)).toBeTruthy();
     }
   });
 
