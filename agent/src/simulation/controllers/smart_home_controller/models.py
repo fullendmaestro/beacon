@@ -76,3 +76,34 @@ class RoverControlRequest(BaseModel):
     vx: float | None = Field(None, ge=-0.3, le=0.3, description="Forward speed m/s")
     vy: float | None = Field(None, ge=-0.3, le=0.3, description="Strafe left speed m/s")
     omega: float | None = Field(None, ge=-1.0, le=1.0, description="Angular velocity rad/s")
+
+# Append to agent/src/simulation/controllers/smart_home_controller/models.py
+
+class DemoCameraFocusRequest(BaseModel):
+    mode: Literal["focus", "follow_rover"] = Field(
+        "focus", description="'focus' for static/device framing or 'follow_rover' for continuous tracking"
+    )
+    preset: str | None = Field(
+        None,
+        description="Named preset e.g. 'overview', 'living_room_light', 'kitchen_light', 'front_door', 'rover_dock'",
+    )
+    target_type: Literal["light", "door", "blind", "rover"] | None = Field(
+        None, description="Type of device to focus on"
+    )
+    target_name: str | None = Field(
+        None, description="Device name or ID to focus on (e.g. 'Living Room Main Light')"
+    )
+    camera_position: list[float] | None = Field(None, description="Explicit [x, y, z] camera coordinates")
+    target_position: list[float] | None = Field(None, description="Explicit [x, y, z] look-at target")
+    offset: list[float] | None = Field(None, description="Optional [dx, dy, dz] offset from target")
+    duration: float = Field(1.0, ge=0.0, le=10.0, description="Smooth transition duration in seconds")
+
+
+class DemoRecordingStartRequest(BaseModel):
+    label: str = Field("capability_demo", description="Capability label for the output MP4 filename")
+    filename: str | None = Field(None, description="Optional explicit MP4 filename")
+    width: int = Field(1920, ge=640, le=3840, description="Video width in pixels")
+    height: int = Field(1080, ge=480, le=2160, description="Video height in pixels")
+    quality: int = Field(95, ge=50, le=100, description="Video encoding quality (50-100)")
+    acceleration: int = Field(1, ge=1, le=10, description="Simulation speed multiplier")
+    caption: bool = Field(False, description="Overlay Webots simulation time caption")

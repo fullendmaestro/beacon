@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from managers import (
     AccessManager,
     ClimateApplianceManager,
+    DemoRecorderManager,
     LightingManager,
     PerceptionManager,
     RoverManager,
@@ -41,6 +42,8 @@ class SmartHomeController:
         self.climate_appliances = ClimateApplianceManager()
         self.perception = PerceptionManager()
         self.rover = RoverManager()
+
+        self.demo = DemoRecorderManager()
 
     def _scan_root_children(self) -> list[Any]:
         nodes: list[Any] = []
@@ -80,6 +83,8 @@ class SmartHomeController:
             self.climate_appliances.ensure_all_default_appliances()
             self.access.init_def_barriers_and_blinds(self.supervisor)
             self.rover.init_devices(self.supervisor)
+
+            self.demo.init_devices(self.supervisor, root_nodes)
 
         self.perception.init_devices(self.supervisor, self.time_step)
 
@@ -273,6 +278,21 @@ class SmartHomeController:
             **req_data,
         })
 
+    # --- Demo Cinematography & Video Recording Facade ---
+
+    def request_camera_focus(self, req_data: dict[str, Any]) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "demo_camera", **req_data})
+
+    def request_recording_start(self, req_data: dict[str, Any]) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "demo_record_start", **req_data})
+
+    def request_recording_stop(self) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "demo_record_stop"})
+
+    def get_demo_status(self) -> dict[str, Any]:
+        with self.state_lock:
+            return self.demo.get_status()
+
     # --- Multi-Domain Scene Execution ---
 
     def _execute_scene_cmd(self, cmd: dict[str, Any]) -> dict[str, Any]:
@@ -335,6 +355,7 @@ class SmartHomeController:
         with self.state_lock:
             self.perception.step_sensors_and_cameras()
             self.rover.update_telemetry()
+            self.demo.step()
 
         while not self.command_queue.empty():
             cmd = self.command_queue.get()
@@ -353,6 +374,18 @@ class SmartHomeController:
                         res = self._execute_scene_cmd(cmd)
                     elif domain == "rover":
                         res = self.rover.execute_cmd(cmd, self.access)
+                    elif domain == "demo_camera":
+                        res = self.demo.focus_camera(
+                            cmd,
+                            self.lighting,
+                            self.access,
+                            self.rover,
+                            self.time_step,
+                        )
+                    elif domain == "demo_record_start":
+                        res = self.demo.start_recording(cmd)
+                    elif domain == "demo_record_stop":
+                        res = self.demo.stop_recording()
                     else:
                         res = {"error": f"Unknown domain {domain}"}
 

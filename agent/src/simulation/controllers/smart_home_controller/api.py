@@ -17,6 +17,8 @@ from models import (
     RoverNavigateRequest,
     RoverPoseRequest,
     SceneTriggerRequest,
+    DemoCameraFocusRequest,
+    DemoRecordingStartRequest,
 )
 
 
@@ -157,5 +159,23 @@ def create_app(controller: SmartHomeController) -> FastAPI:
     @app.post("/api/rover/control")
     def control_rover(req: RoverControlRequest) -> dict[str, Any]:
         return controller.request_rover_control(req.model_dump(exclude_none=True))
+    
+    # --- Demo Cinematography & Video Recording ---
+
+    @app.get("/api/demo/status")
+    def get_demo_status() -> dict[str, Any]:
+        return controller.get_demo_status()
+
+    @app.post("/api/demo/camera/focus")
+    def focus_demo_camera(req: DemoCameraFocusRequest) -> dict[str, Any]:
+        return controller.request_camera_focus(req.model_dump(exclude_none=True))
+
+    @app.post("/api/demo/recording/start")
+    def start_demo_recording(req: DemoRecordingStartRequest) -> dict[str, Any]:
+        return controller.request_recording_start(req.model_dump(exclude_none=True))
+
+    @app.post("/api/demo/recording/stop")
+    def stop_demo_recording() -> dict[str, Any]:
+        return controller.request_recording_stop()
 
     return app
