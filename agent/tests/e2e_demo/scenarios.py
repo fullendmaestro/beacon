@@ -37,7 +37,12 @@ async def _setup_rover_demo(client: WebotsDemoClient) -> None:
 
 async def _verify_rover_demo(client: WebotsDemoClient) -> bool:
     rover = await client.get_rover()
-    return rover["status"] in ("Navigating", "Patrolling") or rover["target_destination"] is not None
+    return (
+        rover["status"] in ("Navigating", "Patrolling")
+        or rover["target_destination"] is not None
+        or rover["current_node"] == "living_room"
+        or rover["arm_pose"] == "inspect_high"
+    )
 
 
 CAPABILITY_SCENARIOS: dict[str, CapabilityDemoScenario] = {

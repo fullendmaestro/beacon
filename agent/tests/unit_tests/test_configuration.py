@@ -1,6 +1,14 @@
 from langgraph.pregel import Pregel
 
-from beacon_agent.graph import calculator, graph, smarthome_tools, tools, utc_now
+from beacon_agent.graph import (
+    calculator,
+    graph,
+    mcp_tools,
+    rover_tools,
+    smarthome_tools,
+    tools,
+    utc_now,
+)
 
 
 def test_graph_compiles() -> None:
@@ -48,4 +56,20 @@ def test_smarthome_tools_loaded() -> None:
         "set_environment",
     }
     assert expected_tools.issubset(tool_names)
-    assert len(tools) >= 21
+
+
+def test_rover_tools_loaded() -> None:
+    tool_names = {t.name for t in rover_tools}
+    expected_rover_tools = {
+        "get_rover_telemetry",
+        "plan_rover_route",
+        "navigate_rover_to_room",
+        "navigate_rover_to_pose",
+        "set_rover_arm_pose",
+        "set_rover_gripper",
+        "drive_rover_velocity",
+        "stop_rover",
+    }
+    assert expected_rover_tools.issubset(tool_names)
+    assert len(mcp_tools) >= 27
+    assert len(tools) >= 29

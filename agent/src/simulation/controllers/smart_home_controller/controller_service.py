@@ -7,7 +7,10 @@ from collections.abc import Generator
 from typing import Any
 
 from constants import APPLIANCE_DEFAULTS, SUPPORTED_LIGHT_TYPES
-from controller import Supervisor
+try:
+    from controller import Supervisor
+except ImportError:
+    Supervisor = None  # type: ignore[assignment,misc]
 from fastapi import HTTPException
 from managers import (
     AccessManager,
@@ -31,8 +34,20 @@ class SmartHomeController:
       - RoverManager (KUKA youBot autonomous navigation, 5-DOF arm, gripper, telemetry)
     """
 
-    def __init__(self, supervisor: Supervisor | None = None) -> None:
-        self.supervisor = supervisor or Supervisor()
+    def __init__(self, supervisor: Any | None = None) -> None:
+        if supervisor is not None:
+            self.supervisor = supervisor
+        elif Supervisor is not None:
+            try:
+                self.supervisor = Supervisor()
+            except Exception:
+                from standalone_supervisor import StandaloneSupervisor
+
+                self.supervisor = StandaloneSupervisor()
+        else:
+            from standalone_supervisor import StandaloneSupervisor
+
+            self.supervisor = StandaloneSupervisor()
         self.time_step = int(self.supervisor.getBasicTimeStep())
         self.command_queue: queue.Queue = queue.Queue()
         self.state_lock = threading.Lock()

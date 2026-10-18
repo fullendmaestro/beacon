@@ -39,7 +39,7 @@ class BeaconRover:
     def __init__(self) -> None:
         self.robot = Robot()
         self.time_step = int(self.robot.getBasicTimeStep())
-        self.last_cmd_ts: float = 0.0
+        self.last_cmd_id: int = 0
 
         # 4 Mecanum Wheels (wheel1: FL, wheel2: FR, wheel3: RL, wheel4: RR)
         self.wheels: list[Motor] = []
@@ -74,6 +74,11 @@ class BeaconRover:
         if self.compass:
             self.compass.enable(self.time_step)
 
+        # onboard Mast Camera (enable if present so Webots renders its feed)
+        self.mast_camera = self.robot.getDevice("Rover Mast Camera")
+        if self.mast_camera:
+            self.mast_camera.enable(self.time_step)
+
         # Navigation state
         self.mode: str = "idle"
         self.nav_phase: str = "turn"  # "turn" -> "drive" -> "turn_final"
@@ -89,8 +94,9 @@ class BeaconRover:
 
     def set_velocity(self, vx: float, vy: float, omega: float) -> None:
         """
-        Drive Mecanum wheels:
+        Drive Mecanum wheels (matches Cyberbotics base.c kinematics):
           vx > 0: all wheels roll forward (+SPEED)
+          vy > 0 (strafe left): wheel1(-), wheel2(+), wheel3(+), wheel4(-)
           omega > 0 (CCW / turn left): left wheels (1, 3) roll backward (-), right wheels (2, 4) roll forward (+)
         """
         geom = LX + LY
@@ -100,8 +106,12 @@ class BeaconRover:
             (1.0 / WHEEL_RADIUS) * (vx + vy - geom * omega),  # wheel3 (Rear-Left)
             (1.0 / WHEEL_RADIUS) * (vx - vy + geom * omega),  # wheel4 (Rear-Right)
         ]
+        max_abs = max(abs(s) for s in speeds)
+        if max_abs > MAX_WHEEL_SPEED:
+            scale = MAX_WHEEL_SPEED / max_abs
+            speeds = [s * scale for s in speeds]
         for i in range(4):
-            self.wheels[i].setVelocity(max(-MAX_WHEEL_SPEED, min(MAX_WHEEL_SPEED, speeds[i])))
+            self.wheels[i].setVelocity(speeds[i])
 
     def stop_base(self) -> None:
         for wheel in self.wheels:
@@ -215,20 +225,7 @@ class BeaconRover:
     # Command Processing
     # ------------------------------------------------------------------
 
-    def process_commands(self) -> None:
-        raw = self.robot.getCustomData()
-        if not raw:
-            return
-        try:
-            cmd: dict[str, Any] = json.loads(raw)
-        except json.JSONDecodeError:
-            return
-
-        ts = float(cmd.get("ts", 0.0))
-        if ts <= self.last_cmd_ts:
-            return
-        self.last_cmd_ts = ts
-
+    def _apply_command(self, cmd: dict[str, Any]) -> None:
         action = cmd.get("action")
         if action == "stop":
             self.mode = "idle"
@@ -245,6 +242,7 @@ class BeaconRover:
             self.nav_phase = "turn"
         elif action == "velocity":
             self.mode = "manual"
+            self.waypoints.clear()
             self.set_velocity(
                 float(cmd.get("vx", 0.0)),
                 float(cmd.get("vy", 0.0)),
@@ -254,6 +252,39 @@ class BeaconRover:
             self.set_arm_pose(str(cmd.get("pose", "reset")))
         elif action == "gripper":
             self.set_gripper(str(cmd.get("gripper_state", "release")))
+
+    def process_commands(self) -> None:
+        raw = self.robot.getCustomData()
+        if not raw:
+            return
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return
+
+        # Support both a command queue ({"commands": [...]}) and legacy single-command dicts
+        if isinstance(parsed, dict) and "commands" in parsed and isinstance(parsed["commands"], list):
+            cmd_list = parsed["commands"]
+        elif isinstance(parsed, dict):
+            cmd_list = [parsed]
+        else:
+            return
+
+        for cmd in cmd_list:
+            if not isinstance(cmd, dict):
+                continue
+            cmd_id = int(cmd.get("cmd_id", 0))
+            if cmd_id > 0:
+                if cmd_id <= self.last_cmd_id:
+                    continue
+                self.last_cmd_id = cmd_id
+            else:
+                ts = int(float(cmd.get("ts", 0.0)) * 1_000_000)
+                if ts <= self.last_cmd_id:
+                    continue
+                self.last_cmd_id = ts
+
+            self._apply_command(cmd)
 
     def run(self) -> None:
         while self.robot.step(self.time_step) != -1:

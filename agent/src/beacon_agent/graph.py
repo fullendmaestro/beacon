@@ -6,7 +6,11 @@ import ast
 import asyncio
 import operator
 import os
+import socket
+import sys
+import threading
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -28,6 +32,53 @@ from rover_mcp.server import rover_mcp as rover_mcp_server
 from smarthome_mcp.server import mcp as smarthome_mcp_server
 
 load_dotenv()
+
+
+def _ensure_smart_home_hub_running(host: str = "127.0.0.1", port: int = 8000) -> None:
+    """
+    Ensure the Smart Home Hub & Rover API server is listening on `host:port`.
+    If Webots is not currently running the controller on port 8000, start the
+    standalone hub controller in a background daemon thread so the frontend
+    and MCP tools never get ERR_CONNECTION_REFUSED.
+    """
+    if os.getenv("DISABLE_AUTO_SMART_HOME_HUB") == "1":
+        return
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.3)
+        if sock.connect_ex((host, port)) == 0:
+            return
+
+    ctrl_dir = Path(__file__).resolve().parents[1] / "simulation" / "controllers" / "smart_home_controller"
+    if not ctrl_dir.exists():
+        return
+
+    def _serve() -> None:
+        if str(ctrl_dir) not in sys.path:
+            sys.path.insert(0, str(ctrl_dir))
+        try:
+            import uvicorn
+            from api import create_app
+            from controller_service import SmartHomeController
+            from standalone_supervisor import StandaloneSupervisor
+
+            controller = SmartHomeController(supervisor=StandaloneSupervisor())
+            controller.init_devices()
+            app = create_app(controller)
+
+            def _sim_loop() -> None:
+                while controller.supervisor.step(controller.time_step) != -1:
+                    controller.step_simulation()
+
+            threading.Thread(target=_sim_loop, daemon=True).start()
+            uvicorn.run(app, host=host, port=port, log_level="warning")
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=_serve, daemon=True, name="beacon-standalone-hub").start()
+
+
+_ensure_smart_home_hub_running()
 
 _SAFE_BIN_OPS: dict[type[ast.operator], Any] = {
     ast.Add: operator.add,
@@ -85,7 +136,7 @@ model = ChatGoogleGenerativeAI(
 )
 
 
-async def _load_all_mcp_tools() -> list[BaseTool]:
+async def _load_all_mcp_tools() -> tuple[list[BaseTool], list[BaseTool]]:
     """Discover tools exposed by both the Smart Home MCP Server and the Rover MCP Server."""
     async with (
         MCPAdapter(smarthome_mcp_server) as home_adapter,
@@ -93,11 +144,11 @@ async def _load_all_mcp_tools() -> list[BaseTool]:
     ):
         home_tools = await home_adapter.list_tools()
         rover_tools = await rover_adapter.list_tools()
-        return [*home_tools, *rover_tools]
+        return list(home_tools), list(rover_tools)
 
 
-def get_all_mcp_tools() -> list[BaseTool]:
-    """Retrieve Smart Home and Rover MCP tools synchronously using an event loop."""
+def _get_mcp_tool_sets() -> tuple[list[BaseTool], list[BaseTool]]:
+    """Retrieve Smart Home and Rover MCP tool sets synchronously using an event loop."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -111,7 +162,14 @@ def get_all_mcp_tools() -> list[BaseTool]:
     return asyncio.run(_load_all_mcp_tools())
 
 
-mcp_tools = get_all_mcp_tools()
+def get_all_mcp_tools() -> list[BaseTool]:
+    """Retrieve combined Smart Home and Rover MCP tools synchronously."""
+    home_tools, r_tools = _get_mcp_tool_sets()
+    return [*home_tools, *r_tools]
+
+
+smarthome_tools, rover_tools = _get_mcp_tool_sets()
+mcp_tools = [*smarthome_tools, *rover_tools]
 tools = [calculator, utc_now, *mcp_tools]
 
 BEACON_SYSTEM_PROMPT = (

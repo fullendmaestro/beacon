@@ -22,6 +22,8 @@ class RoverManager:
         self.rover_node: Any = None
         self.custom_data_field: Any = None
         self.active_waypoints: list[list[float]] = []
+        self._cmd_seq: int = 0
+        self._cmd_history: list[dict[str, Any]] = []
         self.rover_state: dict[str, Any] = {
             "id": "beacon_rover",
             "name": "Beacon KUKA youBot",
@@ -72,11 +74,14 @@ class RoverManager:
                 final_wp = self.active_waypoints[-1]
                 if math.hypot(pos[0] - final_wp[0], pos[1] - final_wp[1]) < 0.08:
                     self.rover_state["status"] = "Docked" if nearest_key == "foyer" else "Idle"
+                    self.rover_state["target_destination"] = None
+                    self.rover_state["active_route_nodes"] = []
                     self.active_waypoints.clear()
 
         if r_field:
             rot = r_field.getSFRotation()
-            yaw = rot[3] if rot[2] >= 0 else -rot[3]
+            yaw = math.atan2(rot[2], 0.0) if False else (rot[3] if rot[2] >= 0 else -rot[3])
+            yaw = math.atan2(math.sin(yaw), math.cos(yaw))
             self.rover_state["heading_rad"] = round(yaw, 3)
 
     @staticmethod
@@ -127,8 +132,9 @@ class RoverManager:
                 "available_nodes": list(NAV_NODES.keys()),
             }
 
-        origin = start_node or self.rover_state["current_node"]
-        if origin not in NAV_NODES:
+        if start_node and start_node in NAV_NODES:
+            origin = start_node
+        else:
             origin, _ = self._infer_nearest_node(
                 self.rover_state["position"][0],
                 self.rover_state["position"][1],
@@ -206,10 +212,13 @@ class RoverManager:
             "ready_to_traverse": len(blocking_doors) == 0,
         }
 
-    def _send_packet(self, payload: dict[str, Any]) -> None:
-        payload["ts"] = time.time()
+    def self._cmd_seq += 1
+        packet = {**payload, "cmd_id": self._cmd_seq, "ts": time.time()}
+        self._cmd_history.append(packet)
+        if len(self._cmd_history) > 10:
+            self._cmd_history = self._cmd_history[-10:]
         if self.custom_data_field:
-            self.custom_data_field.setSFString(json.dumps(payload))
+            self.custom_data_field.setSFString(json.dumps({"commands": self._cmd_history}))
 
     def execute_cmd(self, cmd: dict[str, Any], access_mgr: AccessManager) -> dict[str, Any]:
         if not self.rover_node:
@@ -227,13 +236,35 @@ class RoverManager:
         if sub_action == "navigate":
             dest = cmd["destination"]
             if dest == "patrol":
-                patrol_nodes = ["foyer", "hallway", "living_room", "dining_room", "living_room", "hallway"]
-                waypoints = [NAV_NODES[n]["pose"] for n in patrol_nodes]
+                patrol_loop = ["foyer", "hallway", "living_room", "dining_room", "living_room", "hallway"]
+                cur_node, _ = self._infer_nearest_node(
+                    self.rover_state["position"][0],
+                    self.rover_state["position"][1],
+                )
+                entry_plan = self.plan_route(
+                    destination_node="foyer",
+                    access_mgr=access_mgr,
+                    start_node=cur_node,
+                )
+                if entry_plan.get("blocking_doors"):
+                    return {
+                        "success": False,
+                        "status": "blocked_by_door",
+                        "message": (
+                            "Route to patrol corridor is blocked by closed/locked smart door(s). "
+                            "Unlock and open the blocking door(s) first, then start patrol."
+                        ),
+                        "blocking_doors": entry_plan["blocking_doors"],
+                        "planned_route": entry_plan,
+                    }
+                entry_nodes = entry_plan.get("corner_nodes", ["foyer"])
+                full_patrol_nodes = entry_nodes[:-1] + patrol_loop if len(entry_nodes) > 1 else patrol_loop
+                waypoints = [list(NAV_NODES[n]["pose"]) for n in full_patrol_nodes]
                 self.active_waypoints = waypoints
                 self._send_packet({"action": "patrol", "waypoints": waypoints})
                 self.rover_state["status"] = "Patrolling"
                 self.rover_state["target_destination"] = "Estate Patrol Loop"
-                self.rover_state["active_route_nodes"] = patrol_nodes
+                self.rover_state["active_route_nodes"] = full_patrol_nodes
                 return dict(self.rover_state)
 
             plan = self.plan_route(destination_node=dest, access_mgr=access_mgr)
@@ -270,6 +301,7 @@ class RoverManager:
             self._send_packet({"action": "goto", "waypoints": [pose]})
             self.rover_state["status"] = "Navigating"
             self.rover_state["target_destination"] = f"Coordinates ({pose[0]:.2f}, {pose[1]:.2f})"
+            self.rover_state["active_route_nodes"] = []
             return dict(self.rover_state)
 
         if sub_action == "control":
@@ -278,6 +310,7 @@ class RoverManager:
             if action == "stop":
                 self.rover_state["status"] = "Idle"
                 self.rover_state["target_destination"] = None
+                self.rover_state["active_route_nodes"] = []
                 self.active_waypoints.clear()
             elif action == "arm":
                 pose_name = cmd.get("arm_pose") or "reset"
@@ -288,9 +321,19 @@ class RoverManager:
                 payload["gripper_state"] = g_state
                 self.rover_state["gripper"] = g_state
             elif action == "velocity":
-                payload["vx"] = cmd.get("vx", 0.0)
-                payload["vy"] = cmd.get("vy", 0.0)
-                payload["omega"] = cmd.get("omega", 0.0)
+                vx = float(cmd.get("vx", 0.0))
+                vy = float(cmd.get("vy", 0.0))
+                omega = float(cmd.get("omega", 0.0))
+                payload["vx"] = vx
+                payload["vy"] = vy
+                payload["omega"] = omega
+                self.active_waypoints.clear()
+                self.rover_state["target_destination"] = None
+                self.rover_state["active_route_nodes"] = []
+                if abs(vx) < 1e-4 and abs(vy) < 1e-4 and abs(omega) < 1e-4:
+                    self.rover_state["status"] = "Idle"
+                else:
+                    payload["omega"] = cmd.get("omega", 0.0)
                 self.rover_state["status"] = "Manual Teleop"
 
             self._send_packet(payload)

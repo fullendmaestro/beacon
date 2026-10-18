@@ -14,6 +14,7 @@ CAMERA_NAMES = [
     "Front Door Camera",
     "Driveway Camera",
     "Backyard Patio Camera",
+    "Rover Mast Camera",
 ]
 
 MOTION_SENSOR_NAMES = [

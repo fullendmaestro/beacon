@@ -6,7 +6,12 @@ from collections.abc import Generator
 from typing import Any, cast
 
 from constants import CAMERA_NAMES, LIGHT_SENSOR_NAMES, MOTION_SENSOR_NAMES
-from controller import Camera, DistanceSensor, LightSensor
+try:
+    from controller import Camera, DistanceSensor, LightSensor
+except ImportError:
+    Camera = Any  # type: ignore[assignment,misc]
+    DistanceSensor = Any  # type: ignore[assignment,misc]
+    LightSensor = Any  # type: ignore[assignment,misc]
 from PIL import Image
 
 

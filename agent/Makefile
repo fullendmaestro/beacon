@@ -1,10 +1,11 @@
-.PHONY: help install dev run test integration-tests lint format
+.PHONY: help install dev run hub test integration-tests lint format
 
 help:
 	@echo 'Targets:'
 	@echo '  install             Sync runtime dependencies with uv'
 	@echo '  dev                 Sync project + dev dependencies with uv'
 	@echo '  run                 Start the local LangGraph dev server'
+	@echo '  hub                 Start the Smart Home & Rover Hub API server on port 8000'
 	@echo '  test                Run unit tests'
 	@echo '  integration-tests   Run integration tests'
 	@echo '  lint                Run Ruff checks'
@@ -18,6 +19,9 @@ dev:
 
 run:
 	uv run langgraph dev --allow-blocking
+
+hub:
+	uv run python src/simulation/controllers/smart_home_controller/smart_home_controller.py
 
 test:
 	uv run python -m pytest tests/unit_tests -q
