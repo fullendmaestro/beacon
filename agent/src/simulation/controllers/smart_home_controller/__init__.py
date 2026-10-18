@@ -2,7 +2,6 @@ from .api import create_app
 from .constants import (
     CAMERA_NAMES,
     MAX_LIGHT_INTENSITY,
-    ROVER_WAYPOINTS,
     SUPPORTED_LIGHT_TYPES,
     ColorUtils,
 )
@@ -17,7 +16,6 @@ from .models import (
 __all__ = [
     "CAMERA_NAMES",
     "MAX_LIGHT_INTENSITY",
-    "ROVER_WAYPOINTS",
     "SUPPORTED_LIGHT_TYPES",
     "ColorUtils",
     "LightStateUpdateRequest",

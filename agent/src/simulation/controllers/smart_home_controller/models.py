@@ -43,16 +43,7 @@ class SceneTriggerRequest(BaseModel):
 
 
 class RoverNavigateRequest(BaseModel):
-    destination: Literal[
-        "foyer",
-        "living_room",
-        "dining_room",
-        "kitchen",
-        "hallway",
-        "master_bedroom",
-        "study_bedroom",
-        "patrol",
-    ] = Field(..., description="Target room key or 'patrol' to tour the estate")
+    destination: str = Field(..., description="Target navigation node key (e.g. 'kitchen') or 'patrol'")
 
 
 class RoverPoseRequest(BaseModel):

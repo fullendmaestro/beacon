@@ -255,6 +255,14 @@ class SmartHomeController:
         with self.state_lock:
             return dict(self.rover.rover_state)
 
+    def request_rover_route_plan(self, destination: str, start_node: str | None = None) -> dict[str, Any]:
+        return self.dispatch_command({
+            "domain": "rover",
+            "sub_action": "plan_route",
+            "destination": destination,
+            "start_node": start_node,
+        })
+
     def request_rover_navigation(self, destination: str) -> dict[str, Any]:
         return self.dispatch_command({
             "domain": "rover",

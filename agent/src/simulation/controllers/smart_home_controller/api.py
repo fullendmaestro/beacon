@@ -148,6 +148,10 @@ def create_app(controller: SmartHomeController) -> FastAPI:
     def get_rover() -> dict[str, Any]:
         return controller.get_rover_state()
 
+    @app.get("/api/rover/plan/{destination}")
+    def plan_rover_route(destination: str, start_node: str | None = None) -> dict[str, Any]:
+        return controller.request_rover_route_plan(destination, start_node)
+
     @app.post("/api/rover/navigate")
     def navigate_rover(req: RoverNavigateRequest) -> dict[str, Any]:
         return controller.request_rover_navigation(req.destination)

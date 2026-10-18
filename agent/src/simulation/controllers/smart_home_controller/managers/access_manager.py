@@ -137,11 +137,6 @@ class AccessManager:
         state["state"] = "Open" if target_pct > 0 else "Closed"
         return dict(state)
 
-    def open_door_by_name(self, door_name: str) -> None:
-        for d_id, d_state in self.door_states.items():
-            if d_state["name"] == door_name and d_state["state"] == "Closed":
-                self.execute_door_cmd({"door_id": d_id, "open_state": "open", "locked": False})
-
     def execute_blind_cmd(self, cmd: dict[str, Any]) -> dict[str, Any]:
         blind_id = cmd["blind_id"]
         node = self.blind_nodes.get(blind_id)

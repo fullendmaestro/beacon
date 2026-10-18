@@ -1363,23 +1363,5 @@ DEF BEACON_ROVER Youbot {
       width 640
       height 480
     }
-    DistanceSensor {
-      translation 0.30 0.0 0.05
-      rotation 0 0 1 0
-      name "ds_front"
-      lookupTable [ 0 0 0, 1.5 1000 0 ]
-    }
-    DistanceSensor {
-      translation 0.26 0.14 0.05
-      rotation 0 0 1 0.5236
-      name "ds_front_left"
-      lookupTable [ 0 0 0, 1.5 1000 0 ]
-    }
-    DistanceSensor {
-      translation 0.26 -0.14 0.05
-      rotation 0 0 1 -0.5236
-      name "ds_front_right"
-      lookupTable [ 0 0 0, 1.5 1000 0 ]
-    }
   ]
 }

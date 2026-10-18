@@ -20,6 +20,13 @@ class RoverService:
             resp.raise_for_status()
             return resp.json()
 
+    async def plan_route(self, destination: str, start_node: str | None = None) -> dict[str, Any]:
+        params = {"start_node": start_node} if start_node else None
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0) as client:
+            resp = await client.get(f"/api/rover/plan/{destination}", params=params)
+            resp.raise_for_status()
+            return resp.json()
+
     async def navigate_to_room(self, destination: str) -> dict[str, Any]:
         async with httpx.AsyncClient(base_url=self.base_url, timeout=5.0) as client:
             resp = await client.post("/api/rover/navigate", json={"destination": destination})

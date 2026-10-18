@@ -85,50 +85,105 @@ APPLIANCE_DEFAULTS: dict[str, dict[str, str | float]] = {
     "Foyer Smart Plug": {"type": "WallPlug", "room": "Foyer", "mode": "On", "wattage": 25.0},
 }
 
-ROVER_WAYPOINTS: dict[str, dict[str, Any]] = {
+# Strictly Orthogonal Manhattan Navigation Graph (All segments are 90-degree straight lines)
+NAV_NODES: dict[str, dict[str, Any]] = {
+    # --- East-West Corridor Spine (Strictly y = -7.50) ---
+    "front_door": {
+        "name": "Front Entrance",
+        "room": "Foyer",
+        "pose": [-0.91, -7.50, 0.0],
+    },
+    "master_junction": {
+        "name": "Master Bedroom Junction",
+        "room": "Foyer",
+        "pose": [-2.15, -7.50, -1.5708],
+    },
     "foyer": {
         "name": "Foyer Dock",
         "room": "Foyer",
-        "pose": [-3.1, -7.5, 1.57],
-        "door_name": None,
+        "pose": [-3.10, -7.50, 3.1416],
     },
-    "living_room": {
-        "name": "Living Room Center",
-        "room": "Living Room",
-        "pose": [-6.0, -4.2, 1.57],
-        "door_name": None,
-    },
-    "dining_room": {
-        "name": "Dining Area",
-        "room": "Dining Room",
-        "pose": [-9.2, -1.8, 3.14],
-        "door_name": None,
-    },
-    "kitchen": {
-        "name": "Kitchen Island",
-        "room": "Kitchen",
-        "pose": [-1.8, -3.95, 0.0],
-        "door_name": "Kitchen Passage Door",
+    "bathroom_junction": {
+        "name": "Bathroom Junction",
+        "room": "Corridor",
+        "pose": [-4.94, -7.50, -1.5708],
     },
     "hallway": {
-        "name": "West Corridor",
+        "name": "West Corridor Corner",
         "room": "Corridor",
-        "pose": [-5.3, -7.5, 3.14],
-        "door_name": None,
+        "pose": [-5.35, -7.50, 1.5708],
+    },
+    "study_junction": {
+        "name": "Study Bedroom Junction",
+        "room": "Corridor",
+        "pose": [-6.24, -7.50, -1.5708],
+    },
+    # --- Rooms Branching Vertically Off Corridor ---
+    "utility_room": {
+        "name": "Utility Closet",
+        "room": "Utility",
+        "pose": [-0.91, -5.90, 1.5708],
     },
     "master_bedroom": {
         "name": "Master Bedroom",
         "room": "Master Bedroom",
-        "pose": [-2.15, -9.6, -1.57],
-        "door_name": "Master Bedroom Door",
+        "pose": [-2.15, -9.80, -1.5708],
+    },
+    "bathroom": {
+        "name": "Main Bathroom",
+        "room": "Bathroom",
+        "pose": [-4.94, -9.30, -1.5708],
     },
     "study_bedroom": {
         "name": "Study Bedroom",
         "room": "Study Bedroom",
-        "pose": [-6.24, -9.8, -1.57],
-        "door_name": "Study Bedroom Door",
+        "pose": [-6.24, -9.80, -1.5708],
+    },
+    # --- North-South Living Room Spine (Strictly x = -5.35) ---
+    "kitchen_approach": {
+        "name": "Kitchen Door Approach",
+        "room": "Living Room",
+        "pose": [-5.35, -3.95, 0.0],
+    },
+    "living_room": {
+        "name": "Living Room",
+        "room": "Living Room",
+        "pose": [-5.35, -1.80, 1.5708],
+    },
+    # --- Kitchen Branch (Strictly y = -3.95) ---
+    "kitchen": {
+        "name": "Kitchen",
+        "room": "Kitchen",
+        "pose": [-2.35, -3.95, 0.0],
+    },
+    # --- Dining Room Branch (Strictly y = -1.80) ---
+    "dining_room": {
+        "name": "Dining Room",
+        "room": "Dining Room",
+        "pose": [-9.20, -1.80, 3.1416],
     },
 }
+
+# Orthogonal edges: (node_a, node_b, optional_door_name)
+NAV_EDGES: list[tuple[str, str, str | None]] = [
+    # Corridor spine (y = -7.50)
+    ("front_door", "master_junction", None),
+    ("master_junction", "foyer", None),
+    ("foyer", "bathroom_junction", None),
+    ("bathroom_junction", "hallway", None),
+    ("hallway", "study_junction", None),
+    # Doorway branches off corridor
+    ("front_door", "utility_room", "Utility Closet Door"),
+    ("master_junction", "master_bedroom", "Master Bedroom Door"),
+    ("bathroom_junction", "bathroom", "Main Bathroom Door"),
+    ("study_junction", "study_bedroom", "Study Bedroom Door"),
+    # North spine into Living Room, Kitchen & Dining Room (x = -5.35)
+    ("hallway", "kitchen_approach", None),
+    ("kitchen_approach", "kitchen", "Kitchen Passage Door"),
+    ("kitchen_approach", "living_room", None),
+    ("living_room", "dining_room", None),
+]
+
 
 COLOR_NAMES_MAP: dict[str, list[float]] = {
     "white": [1.0, 1.0, 1.0],
