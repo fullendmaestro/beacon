@@ -12,6 +12,7 @@ import {
   type ClimateDevice,
   type ApplianceDevice,
   type SensorDevice,
+  type RoverTelemetry,
   type ScenePreset,
   type TimeOfDay,
 } from "@/lib/smart-home-api";
@@ -79,6 +80,7 @@ export function useCategoryDevices(category: SmartCategory) {
   const [climate, setClimate] = useState<ClimateDevice[]>([]);
   const [appliances, setAppliances] = useState<ApplianceDevice[]>([]);
   const [sensors, setSensors] = useState<SensorDevice[]>([]);
+  const [rover, setRover] = useState<RoverTelemetry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchCategory = useCallback(async () => {
@@ -105,9 +107,12 @@ export function useCategoryDevices(category: SmartCategory) {
         case "Sensors":
           setSensors(await smartHomeApi.getSensors());
           break;
+        case "Rover":
+          setRover(await smartHomeApi.getRover());
+          break;
       }
-    } catch (e) {
-      console.error(`Failed to load ${category}:`, e);
+    } catch {
+      // Silent retry on next poll tick if Smart Home Hub is offline or restarting
     } finally {
       setIsLoading(false);
     }
@@ -117,7 +122,11 @@ export function useCategoryDevices(category: SmartCategory) {
     setIsLoading(true);
     fetchCategory();
     const intervalMs =
-      category === "Cameras" ? 8000 : category === "Sensors" ? 1200 : 2000;
+      category === "Cameras"
+        ? 8000
+        : category === "Sensors" || category === "Rover"
+          ? 1200
+          : 2000;
     const timer = setInterval(fetchCategory, intervalMs);
     return () => clearInterval(timer);
   }, [fetchCategory, category]);
@@ -135,6 +144,8 @@ export function useCategoryDevices(category: SmartCategory) {
     appliances,
     setAppliances,
     sensors,
+    rover,
+    setRover,
     isLoading,
     refresh: fetchCategory,
   };

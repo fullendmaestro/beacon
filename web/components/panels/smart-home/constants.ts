@@ -6,6 +6,7 @@ import {
   Thermometer,
   PlugZap,
   Radar,
+  Bot,
   Sun,
   Sunrise,
   Moon,
@@ -68,6 +69,12 @@ export const DEVICE_CATEGORIES: CategoryMeta[] = [
     icon: Radar,
     colorClass: "text-cyan-500 dark:text-cyan-400",
     description: "Motion presence & roof daylight telemetry",
+  },
+  {
+    name: "Rover",
+    icon: Bot,
+    colorClass: "text-teal-500 dark:text-teal-400",
+    description: "KUKA youBot autonomous navigation & 5-DOF arm",
   },
 ];
 

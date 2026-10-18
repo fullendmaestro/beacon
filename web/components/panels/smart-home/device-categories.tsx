@@ -35,6 +35,10 @@ export function DeviceCategories({ onSelect }: DeviceCategoriesProps) {
         return `${summary.blinds_count} Shades`;
       case "Thermostats":
         return `${summary.climate_zones} Zones`;
+      case "Rover":
+        return summary.rover
+          ? `${summary.rover.status} • ${summary.rover.current_room}`
+          : "Docked";
       default:
         return null;
     }

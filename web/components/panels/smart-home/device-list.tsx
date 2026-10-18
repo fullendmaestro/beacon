@@ -11,6 +11,9 @@ import {
   PlugZap,
   Radar,
   Sun,
+  Bot,
+  Navigation,
+  OctagonX,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -48,6 +51,8 @@ export function DeviceList({ category }: { category: SmartCategory }) {
     appliances,
     setAppliances,
     sensors,
+    rover,
+    setRover,
     isLoading,
     refresh,
   } = useCategoryDevices(category);
@@ -459,6 +464,73 @@ export function DeviceList({ category }: { category: SmartCategory }) {
                   </div>
                 );
               })}
+
+            {/* 8. AUTONOMOUS ROVER (KUKA YOUBOT) */}
+            {category === "Rover" && rover && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-teal-500/15 text-teal-500">
+                      <Bot className="size-5" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium text-foreground">
+                        {rover.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {rover.status} • {rover.current_room} ({rover.battery_pct}% Battery)
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 rounded-xl text-xs text-red-500"
+                    onClick={async () => {
+                      const updated = await smartHomeApi.controlRover({ action: "stop" });
+                      setRover(updated);
+                    }}
+                  >
+                    <OctagonX className="size-3.5" />
+                    Stop
+                  </Button>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Quick Room Dispatch
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { id: "foyer", label: "Foyer Dock" },
+                      { id: "living_room", label: "Living Room" },
+                      { id: "kitchen", label: "Kitchen" },
+                      { id: "dining_room", label: "Dining Room" },
+                      { id: "master_bedroom", label: "Master Bedroom" },
+                      { id: "patrol", label: "Estate Patrol" },
+                    ].map((dest) => (
+                      <Button
+                        key={dest.id}
+                        variant="outline"
+                        size="sm"
+                        className="justify-start gap-2 rounded-xl text-xs"
+                        onClick={async () => {
+                          const updated = await smartHomeApi.navigateRover(dest.id);
+                          if (updated && "status" in updated && updated.id) {
+                            setRover(updated);
+                          } else {
+                            refresh();
+                          }
+                        }}
+                      >
+                        <Navigation className="size-3.5 text-teal-500" />
+                        {dest.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

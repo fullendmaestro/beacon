@@ -8,13 +8,11 @@ export class BeaconAppPage {
   constructor(page: Page) {
     this.page = page;
     this.smartHomeNavButton = page.locator('button[title="Smart Home"]');
-    this.composerInput = page
-      .locator('textarea, input[type="text"], [contenteditable="true"]')
-      .last();
+    this.composerInput = page.getByRole("textbox", { name: "Message input" });
   }
 
   async gotoHome(): Promise<void> {
-    await this.page.goto("/home", { waitUntil: "networkidle" });
+    await this.page.goto("/home", { waitUntil: "domcontentloaded" });
     await expect(this.smartHomeNavButton).toBeVisible();
   }
 
@@ -33,9 +31,13 @@ export class BeaconAppPage {
       | "Blinds"
       | "Thermostats"
       | "Appliances"
-      | "Sensors",
+      | "Sensors"
+      | "Rover",
   ): Promise<void> {
-    const card = this.page.getByText(category, { exact: true }).first();
+    const card = this.page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: category })
+      .first();
     await card.click();
     await expect(
       this.page.getByRole("heading", { name: category }),
