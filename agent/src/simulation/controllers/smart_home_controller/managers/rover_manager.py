@@ -212,7 +212,8 @@ class RoverManager:
             "ready_to_traverse": len(blocking_doors) == 0,
         }
 
-    def self._cmd_seq += 1
+    def _send_packet(self, payload: dict[str, Any]) -> None:
+        self._cmd_seq += 1
         packet = {**payload, "cmd_id": self._cmd_seq, "ts": time.time()}
         self._cmd_history.append(packet)
         if len(self._cmd_history) > 10:
