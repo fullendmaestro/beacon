@@ -9,10 +9,28 @@ export type SmartCategory =
   | "Thermostats"
   | "Appliances"
   | "Sensors"
-  | "Rover";
+  | "Robots";
 
 export type TimeOfDay = "day" | "sunset" | "night";
 export type ScenePreset = "morning" | "away" | "movie" | "night";
+
+export interface RobotDevice {
+  id: string;
+  name: string;
+  model: string;
+  type: string;
+  status: string;
+  current_room: string;
+  current_node?: string;
+  battery_pct: number;
+  pose: { x: number; y: number; theta: number };
+  target_destination?: string | null;
+  arm_pose?: string;
+  gripper?: "open" | "closed";
+  held_object?: string;
+  task_description?: string;
+  online: boolean;
+}
 
 export interface RoverTelemetry {
   id: string;
@@ -42,6 +60,12 @@ export interface HomeSummary {
   environment: {
     time_of_day: TimeOfDay;
     sun_luminosity: number;
+  };
+  robot?: {
+    status: string;
+    current_room: string;
+    target_destination: string | null;
+    battery_pct?: number;
   };
   rover?: {
     status: string;
@@ -252,5 +276,71 @@ export const smartHomeApi = {
     request<RoverTelemetry>("/api/rover/control", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+
+  // Beacon Home Robots (PAL Robotics TIAGo)
+  getRobots: async (): Promise<RobotDevice[]> => {
+    try {
+      const res = await fetch("/api/robots", { cache: "no-store" });
+      if (res.ok) return await res.json();
+    } catch {
+      // Fallback to hub endpoint
+    }
+    return request<RobotDevice[]>("/api/robots");
+  },
+  controlRobot: async (payload: {
+    robot_id?: string;
+    action: "navigate" | "stop" | "arm" | "gripper" | "head";
+    destination?: string;
+    pose?: string;
+    gripper_state?: "open" | "closed";
+    target?: string;
+  }): Promise<{ success: boolean; status?: string } | RobotDevice> => {
+    try {
+      const res = await fetch("/api/robots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) return await res.json();
+    } catch {
+      // Fallback
+    }
+    return request<{ success: boolean; status?: string } | RobotDevice>(
+      "/api/robots",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+  navigateRobot: (room: string, robotId = "tiago") =>
+    smartHomeApi.controlRobot({
+      robot_id: robotId,
+      action: "navigate",
+      destination: room,
+    }),
+  stopRobot: (robotId = "tiago") =>
+    smartHomeApi.controlRobot({
+      robot_id: robotId,
+      action: "stop",
+    }),
+  setRobotArmPose: (pose: string, robotId = "tiago") =>
+    smartHomeApi.controlRobot({
+      robot_id: robotId,
+      action: "arm",
+      pose,
+    }),
+  setRobotGripper: (gripper_state: "open" | "closed", robotId = "tiago") =>
+    smartHomeApi.controlRobot({
+      robot_id: robotId,
+      action: "gripper",
+      gripper_state,
+    }),
+  setRobotHead: (target: string, robotId = "tiago") =>
+    smartHomeApi.controlRobot({
+      robot_id: robotId,
+      action: "head",
+      target,
     }),
 };

@@ -32,6 +32,7 @@ export class BeaconAppPage {
       | "Thermostats"
       | "Appliances"
       | "Sensors"
+      | "Robots"
       | "Rover",
   ): Promise<void> {
     const card = this.page

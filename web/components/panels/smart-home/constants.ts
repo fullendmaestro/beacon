@@ -71,11 +71,36 @@ export const DEVICE_CATEGORIES: CategoryMeta[] = [
     description: "Motion presence & roof daylight telemetry",
   },
   {
-    name: "Rover",
+    name: "Robots",
     icon: Bot,
     colorClass: "text-teal-500 dark:text-teal-400",
-    description: "KUKA youBot autonomous navigation & 5-DOF arm",
+    description: "PAL Robotics TIAGo mobile manipulator & errands",
   },
+];
+
+export const TIAGO_ROOMS = [
+  { id: "foyer", label: "Foyer Dock", room: "Foyer" },
+  { id: "living_room", label: "Living Room", room: "Living Room" },
+  { id: "kitchen", label: "Kitchen", room: "Kitchen" },
+  { id: "dining_room", label: "Dining Room", room: "Dining Room" },
+  { id: "master_bedroom", label: "Master Bedroom", room: "Master Bedroom" },
+  { id: "bathroom", label: "Main Bathroom", room: "Bathroom" },
+  { id: "study_bedroom", label: "Study Bedroom", room: "Study Bedroom" },
+];
+
+export const TIAGO_ARM_PRESETS = [
+  { id: "home", label: "Home", desc: "Safe rest tuck" },
+  { id: "carry", label: "Carry", desc: "Transport position" },
+  { id: "reach_table", label: "Reach Table", desc: "Table-height grab" },
+  { id: "reach_floor", label: "Reach Floor", desc: "Low pickup" },
+  { id: "handover", label: "Handover", desc: "Offer to user" },
+];
+
+export const TIAGO_HEAD_TARGETS = [
+  { id: "forward", label: "Forward" },
+  { id: "left", label: "Left" },
+  { id: "right", label: "Right" },
+  { id: "down", label: "Look Down" },
 ];
 
 export const LIGHT_COLORS = [

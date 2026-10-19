@@ -35,10 +35,12 @@ export function DeviceCategories({ onSelect }: DeviceCategoriesProps) {
         return `${summary.blinds_count} Shades`;
       case "Thermostats":
         return `${summary.climate_zones} Zones`;
-      case "Rover":
-        return summary.rover
-          ? `${summary.rover.status} • ${summary.rover.current_room}`
-          : "Docked";
+      case "Robots":
+        return summary.robot
+          ? `${summary.robot.status} • ${summary.robot.current_room}`
+          : summary.rover
+            ? `${summary.rover.status} • ${summary.rover.current_room}`
+            : "1 Robot";
       default:
         return null;
     }

@@ -163,6 +163,26 @@ def create_app(controller: SmartHomeController) -> FastAPI:
     @app.post("/api/rover/control")
     def control_rover(req: RoverControlRequest) -> dict[str, Any]:
         return controller.request_rover_control(req.model_dump(exclude_none=True))
+
+    # --- Beacon Home Robots (PAL Robotics TIAGo) ---
+
+    @app.get("/api/robots")
+    def get_robots() -> list[dict[str, Any]]:
+        return controller.list_robots()
+
+    @app.post("/api/robots")
+    def control_robot_endpoint(req: dict[str, Any]) -> dict[str, Any]:
+        action = req.get("action")
+        if action == "navigate" and req.get("destination"):
+            return controller.request_rover_navigation(req["destination"])
+        if action == "stop":
+            return controller.request_rover_control({"action": "stop"})
+        if action == "arm":
+            return controller.request_rover_control({"action": "arm", "arm_pose": req.get("pose", "home")})
+        if action == "gripper":
+            g_state = "grip" if req.get("gripper_state") == "closed" else "release"
+            return controller.request_rover_control({"action": "gripper", "gripper_state": g_state})
+        return {"success": True}
     
     # --- Demo Cinematography & Video Recording ---
 

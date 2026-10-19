@@ -256,6 +256,14 @@ class SmartHomeController:
                     "current_room": self.rover.rover_state["current_room"],
                     "target_destination": self.rover.rover_state["target_destination"],
                 },
+                "robot": {
+                    "id": "tiago",
+                    "name": "TIAGo",
+                    "status": self.rover.rover_state["status"],
+                    "current_room": self.rover.rover_state["current_room"],
+                    "target_destination": self.rover.rover_state["target_destination"],
+                    "battery_pct": self.rover.rover_state.get("battery_pct", 90),
+                },
             }
 
     def request_environment_update(self, time_of_day: str) -> dict[str, Any]:
@@ -263,6 +271,35 @@ class SmartHomeController:
 
     def request_scene(self, scene: str) -> dict[str, Any]:
         return self.dispatch_command({"domain": "scene", "scene": scene})
+
+    # --- Beacon Home Robots (PAL Robotics TIAGo) Facade ---
+
+    def list_robots(self) -> list[dict[str, Any]]:
+        with self.state_lock:
+            r = self.rover.rover_state
+            return [
+                {
+                    "id": "tiago",
+                    "name": "TIAGo",
+                    "model": "PAL Robotics TIAGo",
+                    "type": "Mobile Manipulator",
+                    "status": r.get("status", "Docked"),
+                    "current_room": r.get("current_room", "Foyer"),
+                    "current_node": r.get("current_node", "foyer"),
+                    "battery_pct": r.get("battery_pct", 90),
+                    "pose": {
+                        "x": r.get("position", [-3.1, -7.5, 0.1])[0],
+                        "y": r.get("position", [-3.1, -7.5, 0.1])[1],
+                        "theta": r.get("heading_rad", 1.57),
+                    },
+                    "target_destination": r.get("target_destination"),
+                    "arm_pose": r.get("arm_pose", "home"),
+                    "gripper": "closed" if r.get("gripper") == "grip" else "open",
+                    "held_object": "",
+                    "task_description": r.get("status", "idle").lower(),
+                    "online": bool(self.rover.rover_node),
+                }
+            ]
 
     # --- Autonomous Mobile Robot (Rover) Facade ---
 

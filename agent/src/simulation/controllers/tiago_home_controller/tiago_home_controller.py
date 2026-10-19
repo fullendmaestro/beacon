@@ -15,6 +15,7 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -709,6 +710,12 @@ def _run_deliver(item: str, from_location: str, to_location: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 app = FastAPI(title="TIAGo House-Errand Bot API", version="1.2.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class RoomRequest(BaseModel):

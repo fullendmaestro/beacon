@@ -28,6 +28,7 @@ import {
   type BlindDevice,
   type ClimateDevice,
   type ApplianceDevice,
+  type RobotDevice,
 } from "@/lib/smart-home-api";
 import { CameraModal } from "./controls/camera-modal";
 import { LightDrawer } from "./controls/light-drawer";
@@ -35,6 +36,7 @@ import { DoorLockDrawer } from "./controls/door-lock-drawer";
 import { BlindDrawer } from "./controls/blind-drawer";
 import { ClimateDrawer } from "./controls/climate-drawer";
 import { ApplianceDrawer } from "./controls/appliance-drawer";
+import { RobotDrawer } from "./controls/robot-drawer";
 
 export function DeviceList({ category }: { category: SmartCategory }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,6 +53,8 @@ export function DeviceList({ category }: { category: SmartCategory }) {
     appliances,
     setAppliances,
     sensors,
+    robots,
+    setRobots,
     rover,
     setRover,
     isLoading,
@@ -67,6 +71,7 @@ export function DeviceList({ category }: { category: SmartCategory }) {
   const [selectedApplianceId, setSelectedApplianceId] = useState<string | null>(
     null,
   );
+  const [selectedRobotId, setSelectedRobotId] = useState<string | null>(null);
 
   const selectedLight = lights.find((l) => l.id === selectedLightId) || null;
   const selectedDoor = doors.find((d) => d.id === selectedDoorId) || null;
@@ -74,6 +79,7 @@ export function DeviceList({ category }: { category: SmartCategory }) {
   const selectedZone = climate.find((c) => c.id === selectedZoneId) || null;
   const selectedAppliance =
     appliances.find((a) => a.id === selectedApplianceId) || null;
+  const selectedRobot = robots.find((r) => r.id === selectedRobotId) || null;
 
   // --- Handlers with Optimistic Updates ---
 
@@ -171,6 +177,51 @@ export function DeviceList({ category }: { category: SmartCategory }) {
     try {
       const updated = await smartHomeApi.updateAppliance(id, payload);
       setAppliances((prev) => prev.map((a) => (a.id === id ? updated : a)));
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleNavigateRobot = async (destId: string) => {
+    try {
+      await smartHomeApi.navigateRobot(destId);
+      refresh();
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleStopRobot = async () => {
+    try {
+      await smartHomeApi.stopRobot();
+      refresh();
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleSetRobotArm = async (pose: string) => {
+    try {
+      await smartHomeApi.setRobotArmPose(pose);
+      refresh();
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleSetRobotGripper = async (state: "open" | "closed") => {
+    try {
+      await smartHomeApi.setRobotGripper(state);
+      refresh();
+    } catch {
+      refresh();
+    }
+  };
+
+  const handleSetRobotHead = async (target: string) => {
+    try {
+      await smartHomeApi.setRobotHead(target);
+      refresh();
     } catch {
       refresh();
     }
@@ -465,72 +516,79 @@ export function DeviceList({ category }: { category: SmartCategory }) {
                 );
               })}
 
-            {/* 8. AUTONOMOUS ROVER (KUKA YOUBOT) */}
-            {category === "Rover" && rover && (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex size-10 items-center justify-center rounded-xl bg-teal-500/15 text-teal-500">
-                      <Bot className="size-5" />
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-foreground">
-                        {rover.name}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {rover.status} • {rover.current_room} ({rover.battery_pct}% Battery)
-                      </span>
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 gap-1.5 rounded-xl text-xs text-red-500"
-                    onClick={async () => {
-                      const updated = await smartHomeApi.controlRover({ action: "stop" });
-                      setRover(updated);
-                    }}
+            {/* 8. BEACON HOME ROBOTS (TIAGo) */}
+            {category === "Robots" &&
+              robots.map((robot) => {
+                const isNavigating =
+                  robot.status === "Navigating" ||
+                  robot.status?.toLowerCase().includes("navigat");
+                return (
+                  <div
+                    key={robot.id}
+                    onClick={() => setSelectedRobotId(robot.id)}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/20 p-3.5 transition-colors hover:bg-muted/50"
                   >
-                    <OctagonX className="size-3.5" />
-                    Stop
-                  </Button>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Quick Room Dispatch
-                  </span>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { id: "foyer", label: "Foyer Dock" },
-                      { id: "living_room", label: "Living Room" },
-                      { id: "kitchen", label: "Kitchen" },
-                      { id: "dining_room", label: "Dining Room" },
-                      { id: "master_bedroom", label: "Master Bedroom" },
-                      { id: "patrol", label: "Estate Patrol" },
-                    ].map((dest) => (
+                    <div className="flex items-center gap-3">
+                      <div className="flex size-11 items-center justify-center rounded-xl border border-teal-500/30 bg-teal-500/15 text-teal-500">
+                        <Bot className="size-5" />
+                      </div>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">
+                            {robot.name}
+                          </span>
+                          <span
+                            className={cn(
+                              "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                              isNavigating
+                                ? "bg-amber-500/15 text-amber-500"
+                                : robot.status === "Docked"
+                                  ? "bg-emerald-500/15 text-emerald-500"
+                                  : "bg-blue-500/15 text-blue-500",
+                            )}
+                          >
+                            <span className="size-1.5 rounded-full bg-current animate-pulse" />
+                            {robot.status}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {robot.current_room} • {robot.battery_pct}% Battery
+                          {robot.held_object
+                            ? ` • Holding ${robot.held_object}`
+                            : ""}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {isNavigating && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1 rounded-xl text-xs text-red-500 hover:text-red-600"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await handleStopRobot();
+                          }}
+                        >
+                          <OctagonX className="size-3.5" />
+                          Stop
+                        </Button>
+                      )}
                       <Button
-                        key={dest.id}
                         variant="outline"
                         size="sm"
-                        className="justify-start gap-2 rounded-xl text-xs"
-                        onClick={async () => {
-                          const updated = await smartHomeApi.navigateRover(dest.id);
-                          if (updated && "status" in updated && updated.id) {
-                            setRover(updated);
-                          } else {
-                            refresh();
-                          }
+                        className="h-8 rounded-xl text-xs font-semibold"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedRobotId(robot.id);
                         }}
                       >
-                        <Navigation className="size-3.5 text-teal-500" />
-                        {dest.label}
+                        Controls
                       </Button>
-                    ))}
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
+                );
+              })}
           </div>
         )}
       </div>
@@ -574,6 +632,17 @@ export function DeviceList({ category }: { category: SmartCategory }) {
         container={containerRef.current}
         onClose={() => setSelectedApplianceId(null)}
         onUpdate={handleUpdateAppliance}
+      />
+
+      <RobotDrawer
+        robot={selectedRobot}
+        container={containerRef.current}
+        onClose={() => setSelectedRobotId(null)}
+        onNavigate={handleNavigateRobot}
+        onStop={handleStopRobot}
+        onSetArmPose={handleSetRobotArm}
+        onSetGripper={handleSetRobotGripper}
+        onSetHead={handleSetRobotHead}
       />
     </div>
   );

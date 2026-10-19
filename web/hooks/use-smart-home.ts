@@ -12,6 +12,7 @@ import {
   type ClimateDevice,
   type ApplianceDevice,
   type SensorDevice,
+  type RobotDevice,
   type RoverTelemetry,
   type ScenePreset,
   type TimeOfDay,
@@ -80,6 +81,7 @@ export function useCategoryDevices(category: SmartCategory) {
   const [climate, setClimate] = useState<ClimateDevice[]>([]);
   const [appliances, setAppliances] = useState<ApplianceDevice[]>([]);
   const [sensors, setSensors] = useState<SensorDevice[]>([]);
+  const [robots, setRobots] = useState<RobotDevice[]>([]);
   const [rover, setRover] = useState<RoverTelemetry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -107,8 +109,8 @@ export function useCategoryDevices(category: SmartCategory) {
         case "Sensors":
           setSensors(await smartHomeApi.getSensors());
           break;
-        case "Rover":
-          setRover(await smartHomeApi.getRover());
+        case "Robots":
+          setRobots(await smartHomeApi.getRobots());
           break;
       }
     } catch {
@@ -124,7 +126,7 @@ export function useCategoryDevices(category: SmartCategory) {
     const intervalMs =
       category === "Cameras"
         ? 8000
-        : category === "Sensors" || category === "Rover"
+        : category === "Sensors" || category === "Robots"
           ? 1200
           : 2000;
     const timer = setInterval(fetchCategory, intervalMs);
@@ -144,6 +146,8 @@ export function useCategoryDevices(category: SmartCategory) {
     appliances,
     setAppliances,
     sensors,
+    robots,
+    setRobots,
     rover,
     setRover,
     isLoading,
