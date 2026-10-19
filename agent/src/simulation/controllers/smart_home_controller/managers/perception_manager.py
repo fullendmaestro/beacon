@@ -21,18 +21,23 @@ class PerceptionManager:
     def __init__(self) -> None:
         self.cameras: dict[str, Camera] = {}
         self.camera_frames: dict[str, bytes | None] = {}
+        self.stream_subscribers: dict[str, int] = {}
+        self._last_cam_step: float = 0.0
         self.motion_sensors: dict[str, DistanceSensor] = {}
         self.light_sensors: dict[str, LightSensor] = {}
         self.sensor_states: dict[str, dict[str, Any]] = {}
 
     def init_devices(self, supervisor: Any, time_step: int) -> None:
+        # Sample cameras at 128ms (~8 FPS) rather than 16ms to avoid saturating Webots OpenGL rendering
+        cam_period = max(time_step * 8, 128)
         for name in CAMERA_NAMES:
             device = supervisor.getDevice(name)
             if device:
                 cam = cast(Camera, device)
-                cam.enable(time_step)
+                cam.enable(cam_period)
                 self.cameras[name] = cam
                 self.camera_frames[name] = None
+                self.stream_subscribers[name] = 0
 
         for name in MOTION_SENSOR_NAMES:
             device = supervisor.getDevice(name)
@@ -65,10 +70,21 @@ class PerceptionManager:
                 }
 
     def step_sensors_and_cameras(self) -> None:
-        for name, cam in self.cameras.items():
-            img = cam.getImage()
-            if img:
-                self.camera_frames[name] = img
+        now = time.time()
+        # Only grab camera frames when there are active stream subscribers,
+        # throttled to at most ~10 FPS (every 100ms) to prevent memory allocation storms.
+        if any(v > 0 for v in self.stream_subscribers.values()):
+            if now - self._last_cam_step >= 0.1:
+                self._last_cam_step = now
+                for name, count in list(self.stream_subscribers.items()):
+                    if count > 0 and name in self.cameras:
+                        cam = self.cameras[name]
+                        try:
+                            img = cam.getImage()
+                            if img:
+                                self.camera_frames[name] = img
+                        except (MemoryError, ValueError, Exception):
+                            pass
 
         for name, ds in self.motion_sensors.items():
             val = ds.getValue()
@@ -103,18 +119,22 @@ class PerceptionManager:
         width = cam.getWidth()
         height = cam.getHeight()
 
-        while True:
-            raw = self.camera_frames.get(name)
-            if raw:
-                try:
-                    img = Image.frombytes("RGBA", (width, height), raw, "raw", "BGRA")
-                    buf = io.BytesIO()
-                    img.convert("RGB").save(buf, format="JPEG", quality=60)
-                    frame = buf.getvalue()
-                    yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
-                    )
-                except (ValueError, OSError):
-                    pass
-            time.sleep(0.05)
+        self.stream_subscribers[name] = self.stream_subscribers.get(name, 0) + 1
+        try:
+            while True:
+                raw = self.camera_frames.get(name)
+                if raw:
+                    try:
+                        img = Image.frombytes("RGBA", (width, height), raw, "raw", "BGRA")
+                        buf = io.BytesIO()
+                        img.convert("RGB").save(buf, format="JPEG", quality=60)
+                        frame = buf.getvalue()
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                        )
+                    except (ValueError, OSError):
+                        pass
+                time.sleep(0.08)
+        finally:
+            self.stream_subscribers[name] = max(0, self.stream_subscribers.get(name, 1) - 1)

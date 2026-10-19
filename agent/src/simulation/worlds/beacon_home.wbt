@@ -1358,6 +1358,7 @@ DEF BEACON_TIAGO Tiago {
   rotation 0 0 1 1.5708
   name "TIAGo"
   controller "tiago_home_controller"
+  supervisor TRUE
   endEffectorSlot TiagoRobotiqGripper {
     model "2F-85"
   }

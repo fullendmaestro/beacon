@@ -1,4 +1,4 @@
-"""TIAGo House-Errand Bot – Webots controller."""
+"""TIAGo House-Errand Bot – Webots controller with Ground-Truth Pose & Door Auto-Clearance."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pydantic import BaseModel
 logger = logging.getLogger("tiago_home_controller")
 
 try:
-    from controller import Robot  # type: ignore
+    from controller import Supervisor, Robot  # type: ignore
     _WEBOTS = True
 except ImportError:
     _WEBOTS = False
@@ -36,17 +36,18 @@ TIME_STEP = 16  # Matches beacon_home.wbt basicTimeStep
 
 WHEEL_RADIUS = 0.0985       # metres
 WHEEL_SEPARATION = 0.4044   # metres
-MAX_SPEED = 5.0             # rad/s
+MAX_SPEED = 4.5             # rad/s
 
-# Exact orthogonal Manhattan navigation graph matching beacon_home.wbt
+# Exact orthogonal Manhattan navigation graph matching your red path in beacon_home_1.png.
+# Note: Corridor spine uses y = -7.62 to give extra clearance from the Corridor Radiator at y = -6.88.
 NAV_NODES: dict[str, dict[str, Any]] = {
-    "front_door":        {"name": "Front Entrance",          "room": "Foyer",          "pose": (-0.91, -7.50,  0.0)},
-    "master_junction":   {"name": "Master Bedroom Junction", "room": "Foyer",          "pose": (-2.15, -7.50, -1.5708)},
-    "foyer":             {"name": "Foyer Dock",              "room": "Foyer",          "pose": (-3.10, -7.50,  1.5708)},
-    "docking":           {"name": "Foyer Dock",              "room": "Foyer",          "pose": (-3.10, -7.50,  1.5708)},
-    "hallway":           {"name": "West Corridor Corner",    "room": "Corridor",       "pose": (-5.35, -7.50,  1.5708)},
-    "bathroom_junction": {"name": "Bathroom Junction",       "room": "Corridor",       "pose": (-4.94, -7.50, -1.5708)},
-    "study_junction":    {"name": "Study Bedroom Junction",  "room": "Corridor",       "pose": (-6.24, -7.50, -1.5708)},
+    "front_door":        {"name": "Front Entrance",          "room": "Foyer",          "pose": (-0.91, -7.62,  0.0)},
+    "master_junction":   {"name": "Master Bedroom Junction", "room": "Foyer",          "pose": (-2.15, -7.62, -1.5708)},
+    "foyer":             {"name": "Foyer Dock",              "room": "Foyer",          "pose": (-3.10, -7.62,  3.1416)},
+    "docking":           {"name": "Foyer Dock",              "room": "Foyer",          "pose": (-3.10, -7.62,  3.1416)},
+    "bathroom_junction": {"name": "Bathroom Junction",       "room": "Corridor",       "pose": (-4.94, -7.62, -1.5708)},
+    "hallway":           {"name": "West Corridor Corner",    "room": "Corridor",       "pose": (-5.35, -7.62,  1.5708)},
+    "study_junction":    {"name": "Study Bedroom Junction",  "room": "Corridor",       "pose": (-6.24, -7.62, -1.5708)},
     "utility_room":      {"name": "Utility Closet",          "room": "Utility",        "pose": (-0.91, -5.90,  1.5708)},
     "master_bedroom":    {"name": "Master Bedroom",          "room": "Master Bedroom", "pose": (-2.15, -9.80, -1.5708)},
     "bedroom":           {"name": "Master Bedroom",          "room": "Master Bedroom", "pose": (-2.15, -9.80, -1.5708)},
@@ -58,7 +59,6 @@ NAV_NODES: dict[str, dict[str, Any]] = {
     "dining_room":       {"name": "Dining Room",             "room": "Dining Room",    "pose": (-9.20, -1.80,  3.1416)},
 }
 
-# Canonical graph nodes for Dijkstra
 _GRAPH_NODES = {k: v for k, v in NAV_NODES.items() if k not in ("docking", "bedroom")}
 
 NAV_EDGES: list[tuple[str, str, str | None]] = [
@@ -91,13 +91,15 @@ OBJECTS: list[str] = [
     "medicine_box", "glasses", "phone", "keys", "tray",
 ]
 
-# Compact tucked "home" pose avoids hitting corridor walls/radiators
+# Joint order for TIAGo + Robotiq 2F-85:
+# [torso_lift_joint, arm_1_joint, arm_2_joint, arm_3_joint, arm_4_joint, arm_6_joint]
+# Validated against official tiago_robotiq_grippers.py joint limits (arm_3 min is -2.237).
 ARM_PRESETS: dict[str, list[float]] = {
-    "home":        [0.105,  0.07,   0.26,  -3.16,  1.27,   0.0,   0.0],
-    "carry":       [0.250,  0.20,   0.10,  -2.00,  1.40,   0.0,   0.0],
-    "reach_table": [0.200,  0.331,  0.0337, -1.650, 1.403, 0.0,   0.0],
-    "reach_floor": [0.050,  0.400, -0.300,  -0.200, 1.200, 0.0,   0.0],
-    "handover":    [0.300,  0.500, -1.000,   0.300, 1.403, -0.50, 0.0],
+    "home":        [0.150,  0.07,   0.0,    -2.237,  1.403,  0.0],
+    "carry":       [0.250,  0.07,   0.0,    -2.237,  1.403,  0.0],
+    "reach_table": [0.200,  0.331,  0.0337, -1.650,  1.403,  0.0],
+    "reach_floor": [0.050,  0.400, -0.300,  -0.200,  1.200,  0.0],
+    "handover":    [0.300,  0.500, -1.000,   0.300,  1.403, -0.50],
 }
 
 
@@ -145,10 +147,28 @@ def _simplify_collinear(nodes: list[str]) -> list[str]:
 
 def _fetch_smart_home_doors() -> list[dict[str, Any]]:
     try:
-        with urllib.request.urlopen(f"{SMART_HOME_API}/api/doors", timeout=0.8) as resp:
+        with urllib.request.urlopen(f"{SMART_HOME_API}/api/doors", timeout=0.6) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception:
         return []
+
+
+def _open_door_via_http(door_name: str) -> None:
+    """Ensure the Smart Home Hub API also marks the door open."""
+    try:
+        doors = _fetch_smart_home_doors()
+        for d in doors:
+            if d.get("name") == door_name:
+                door_id = d["id"]
+                req = urllib.request.Request(
+                    f"{SMART_HOME_API}/api/doors/{door_id}/state",
+                    data=json.dumps({"open_state": "open", "locked": False, "position": 100}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=0.6)
+    except Exception:
+        pass
 
 
 def _compute_route(cx: float, cy: float, dest_raw: str) -> dict[str, Any]:
@@ -183,8 +203,7 @@ def _compute_route(cx: float, cy: float, dest_raw: str) -> dict[str, Any]:
     waypoints: list[dict[str, float]] = []
     for idx, k in enumerate(corners):
         nx, ny, def_yaw = _GRAPH_NODES[k]["pose"]
-        # Skip the origin node if the robot is already right on top of it (< 0.15m)
-        if idx == 0 and len(corners) > 1 and math.hypot(nx - cx, ny - cy) < 0.15:
+        if idx == 0 and len(corners) > 1 and math.hypot(nx - cx, ny - cy) < 0.25:
             continue
         if idx < len(corners) - 1:
             nxt_pose = _GRAPH_NODES[corners[idx + 1]]["pose"]
@@ -193,7 +212,6 @@ def _compute_route(cx: float, cy: float, dest_raw: str) -> dict[str, Any]:
             yaw = round(def_yaw, 4)
         waypoints.append({"x": nx, "y": ny, "theta": yaw})
 
-    # Query live door states from Smart Home Controller (port 8000)
     live_doors = _fetch_smart_home_doors()
     blocking_doors: list[dict[str, Any]] = []
     for d_name in doors_on_path:
@@ -213,6 +231,7 @@ def _compute_route(cx: float, cy: float, dest_raw: str) -> dict[str, Any]:
         "origin": origin,
         "destination": dest_raw,
         "waypoints": waypoints,
+        "doors_on_path": doors_on_path,
         "distance_m": total_dist,
         "blocking_doors": blocking_doors,
     }
@@ -240,10 +259,10 @@ class TiagoState:
     arm_pose_name: str = "home"
     held_object: str = ""
     battery: float = 100.0
-    # Active waypoint queue executed by the main Webots thread: list of (x, y, theta)
     waypoint_queue: list[tuple[float, float, float]] = field(default_factory=list)
-    nav_phase: str = "rotate_to_goal"  # 'rotate_to_goal' | 'drive' | 'final_align'
-    # Errand state
+    doors_to_clear: list[str] = field(default_factory=list)
+    nav_phase: str = "unstick"  # 'unstick' | 'rotate_to_goal' | 'drive' | 'final_align'
+    nav_start_sim_time: float = 0.0
     errand_id: str = ""
     errand_type: str = ""
     errand_current_step: int = 0
@@ -273,6 +292,8 @@ class _StubCamera:
 
 
 _avail_devices: dict[str, Any] = {}
+_self_node: Any = None
+_door_nodes_by_name: dict[str, tuple[Any, float]] = {}
 
 
 def _dev(name: str) -> Any:
@@ -282,12 +303,35 @@ def _dev(name: str) -> Any:
 
 
 if _WEBOTS:
-    robot = Robot()
+    try:
+        robot = Supervisor()
+    except Exception:
+        robot = Robot()
+
     time_step = int(robot.getBasicTimeStep())
     for i in range(robot.getNumberOfDevices()):
         d = robot.getDeviceByIndex(i)
         if d is not None:
             _avail_devices[d.getName()] = d
+
+    # Discover Supervisor self node and Door nodes for ground-truth pose & direct door opening
+    if hasattr(robot, "getSelf"):
+        try:
+            _self_node = robot.getSelf()
+            root = robot.getRoot()
+            if root:
+                children = root.getField("children")
+                for idx in range(children.getCount()):
+                    n = children.getMFNode(idx)
+                    if n and n.getTypeName() == "Door":
+                        nf = n.getField("name")
+                        tf = n.getField("translation")
+                        if nf and tf:
+                            dname = nf.getSFString()
+                            base_z = tf.getSFVec3f()[2]
+                            _door_nodes_by_name[dname] = (n, base_z)
+        except Exception:
+            _self_node = None
 
     _left_wheel = _dev("wheel_left_joint") or _StubMotor()
     _right_wheel = _dev("wheel_right_joint") or _StubMotor()
@@ -302,27 +346,22 @@ if _WEBOTS:
     _right_enc.enable(time_step)
 
     _camera = _dev("Astra rgb") or _StubCamera()
-    _camera.enable(time_step)
+    _camera.enable(max(time_step * 8, 128))
 
+    # Exact 6 arm joints for TIAGo + Robotiq 2F-85 (from official tiago_robotiq_grippers.py)
     _arm_joint_names = [
         "torso_lift_joint",
-        "arm_1_joint", "arm_2_joint", "arm_3_joint",
-        "arm_4_joint", "arm_6_joint", "arm_7_joint",
+        "arm_1_joint",
+        "arm_2_joint",
+        "arm_3_joint",
+        "arm_4_joint",
+        "arm_6_joint",
     ]
     _arm_joints = [_dev(n) or _StubMotor() for n in _arm_joint_names]
 
-    # Safely set half max velocity and tuck arm into 'home' pose immediately at startup
+    # Immediately fold the arm out of the radiator using valid joint limits
     for j, target_angle in zip(_arm_joints, ARM_PRESETS["home"]):
-        try:
-            j.setVelocity(j.getMaxVelocity() / 2.0)
-        except Exception:
-            pass
         j.setPosition(target_angle)
-
-    # Also tuck arm_5_joint if present
-    _arm_5 = _dev("arm_5_joint")
-    if _arm_5:
-        _arm_5.setPosition(1.32)
 
     _gripper_motor = _dev("front::left finger joint") or _StubMotor()
     if _dev("front::left finger joint") is not None:
@@ -343,7 +382,7 @@ else:
     _left_wheel = _right_wheel = _StubMotor()
     _left_enc = _right_enc = _StubSensor()
     _camera = _StubCamera()
-    _arm_joints = [_StubMotor() for _ in range(7)]
+    _arm_joints = [_StubMotor() for _ in range(6)]
     _gripper_joints = [_StubMotor()]
     _head_pan = _head_tilt = _StubMotor()
 
@@ -383,8 +422,20 @@ def _apply_head(target: str) -> bool:
     return True
 
 
+def _ensure_webots_door_open(door_name: str) -> None:
+    """Directly raise any blocking interior door in the Webots scene tree."""
+    if door_name in _door_nodes_by_name:
+        node, base_z = _door_nodes_by_name[door_name]
+        tf = node.getField("translation")
+        if tf:
+            pos = list(tf.getSFVec3f())
+            if pos[2] < base_z + 2.0:
+                pos[2] = base_z + 2.25
+                tf.setSFVec3f(pos)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# Non-Blocking Main-Loop Odometry & Waypoint Follower
+# Ground-Truth Pose & Orthogonal Waypoint Follower (Runs in Main Webots Thread)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _odom_left_prev: float = 0.0
@@ -396,12 +447,27 @@ def _norm_angle(a: float) -> float:
     return math.atan2(math.sin(a), math.cos(a))
 
 
-def _step_odometry_and_navigation() -> None:
-    """Executed exclusively inside the main Webots step loop."""
+def _update_pose() -> None:
+    """Update _state (x, y, theta) from Webots Supervisor ground-truth (or wheel odometry fallback)."""
     global _odom_left_prev, _odom_right_prev, _odom_initialized
     if not _WEBOTS:
         return
 
+    # 1. Preferred: Exact 3D ground-truth pose from Webots Supervisor
+    if _self_node is not None:
+        try:
+            pos = _self_node.getPosition()
+            rot = _self_node.getOrientation()  # 3x3 row-major rotation matrix
+            yaw = math.atan2(rot[3], rot[0])
+            with _state_lock:
+                _state.x = float(pos[0])
+                _state.y = float(pos[1])
+                _state.theta = _norm_angle(yaw)
+            return
+        except Exception:
+            pass
+
+    # 2. Fallback: Wheel encoders
     left_pos = _left_enc.getValue()
     right_pos = _right_enc.getValue()
     if math.isnan(left_pos) or math.isnan(right_pos):
@@ -416,7 +482,6 @@ def _step_odometry_and_navigation() -> None:
     dr = (right_pos - _odom_right_prev) * WHEEL_RADIUS
     _odom_left_prev = left_pos
     _odom_right_prev = right_pos
-
     dc = (dl + dr) / 2.0
     dtheta = (dr - dl) / WHEEL_SEPARATION
 
@@ -425,8 +490,27 @@ def _step_odometry_and_navigation() -> None:
         _state.x += dc * math.cos(_state.theta)
         _state.y += dc * math.sin(_state.theta)
 
+
+def _step_navigation() -> None:
+    """Executed exclusively inside the main Webots step loop."""
+    if not _WEBOTS or robot is None:
+        return
+
+    _update_pose()
+    sim_now = robot.getTime()
+
+    # Wait 1.2s at simulation start so the arm finishes folding out of the radiator
+    if sim_now < 1.2:
+        _set_wheel_speeds(0.0, 0.0)
+        return
+
+    with _state_lock:
         if _state.task != TaskState.NAVIGATING or not _state.waypoint_queue:
             return
+
+        # Guarantee any doors along the active route are physically open in Webots
+        for d_name in _state.doors_to_clear:
+            _ensure_webots_door_open(d_name)
 
         tx, ty, ttheta = _state.waypoint_queue[0]
         dx = tx - _state.x
@@ -435,36 +519,47 @@ def _step_odometry_and_navigation() -> None:
         desired_heading = math.atan2(dy, dx)
         heading_err = _norm_angle(desired_heading - _state.theta)
 
-        # Phase 1: Rotate in place toward next Manhattan waypoint before driving
+        # Phase 0: Back up slightly (0.14m toward -Y) if spawned too close to the north corridor radiator
+        if _state.nav_phase == "unstick":
+            if _state.y > -7.58 and abs(_norm_angle(_state.theta - 1.5708)) < 0.6:
+                _set_wheel_speeds(-2.0, -2.0)
+                return
+            _set_wheel_speeds(0.0, 0.0)
+            _state.nav_phase = "rotate_to_goal"
+
+        # Phase 1: Rotate in place toward next Manhattan waypoint
         if _state.nav_phase == "rotate_to_goal":
-            if dist < 0.08:
+            if dist < 0.10:
                 _state.nav_phase = "final_align"
-            elif abs(heading_err) > 0.06:
-                ang = max(-2.2, min(2.2, heading_err * 3.5))
+            elif abs(heading_err) > 0.05:
+                # If facing +Y (1.57 rad) in the corridor and turning toward -X (pi rad),
+                # rotate CLOCKWISE (ang < 0) if near the north wall so the right arm swings into open space.
+                ang = max(-2.0, min(2.0, heading_err * 3.2))
+                if abs(heading_err) < 0.25:
+                    ang = math.copysign(max(0.35, abs(ang)), heading_err)
                 _set_wheel_speeds(-ang, ang)
                 return
             else:
+                _set_wheel_speeds(0.0, 0.0)
                 _state.nav_phase = "drive"
 
         # Phase 2: Drive straight along orthogonal corridor segment
         if _state.nav_phase == "drive":
-            if dist < 0.08:
+            if dist < 0.10:
                 _set_wheel_speeds(0.0, 0.0)
                 _state.nav_phase = "final_align"
-            elif abs(heading_err) > 0.35:
-                # Re-align in place if heading drifted significantly
+            elif abs(heading_err) > 0.40:
                 _state.nav_phase = "rotate_to_goal"
                 _set_wheel_speeds(0.0, 0.0)
                 return
             else:
-                lin = min(MAX_SPEED * 0.65, max(0.6, dist * 2.5))
-                ang = heading_err * 2.5
+                lin = min(MAX_SPEED * 0.75, max(0.8, dist * 2.8))
+                ang = heading_err * 2.8
                 _set_wheel_speeds(lin - ang, lin + ang)
                 return
 
-        # Phase 3: Align to target heading at waypoint
+        # Phase 3: Advance to next corner or align final heading
         if _state.nav_phase == "final_align":
-            # Only align heading on the very last waypoint; intermediate corners rotate in Phase 1
             if len(_state.waypoint_queue) > 1:
                 _state.waypoint_queue.pop(0)
                 _state.nav_phase = "rotate_to_goal"
@@ -472,7 +567,7 @@ def _step_odometry_and_navigation() -> None:
 
             align_err = _norm_angle(ttheta - _state.theta)
             if abs(align_err) > 0.05:
-                ang = max(-2.0, min(2.0, align_err * 3.0))
+                ang = max(-1.8, min(1.8, align_err * 3.0))
                 _set_wheel_speeds(-ang, ang)
             else:
                 _set_wheel_speeds(0.0, 0.0)
@@ -495,13 +590,19 @@ def _wait_for_nav_complete(timeout: float = 90.0) -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _enqueue_room_nav(room: str) -> dict[str, Any]:
+    _update_pose()
     with _state_lock:
         cx, cy = _state.x, _state.y
     plan = _compute_route(cx, cy, room)
+    # Also notify Smart Home HTTP server to open any doors on path
+    for d_name in plan.get("doors_on_path", []):
+        _open_door_via_http(d_name)
+
     wps = [(wp["x"], wp["y"], wp["theta"]) for wp in plan["waypoints"]]
     with _state_lock:
         _state.waypoint_queue = wps
-        _state.nav_phase = "rotate_to_goal"
+        _state.doors_to_clear = list(plan.get("doors_on_path", []))
+        _state.nav_phase = "unstick"
         _state.task = TaskState.NAVIGATING if wps else TaskState.IDLE
         _state.task_description = f"navigating to {room}" if wps else "idle"
     return plan
@@ -607,7 +708,7 @@ def _run_deliver(item: str, from_location: str, to_location: str) -> None:
 # FastAPI App
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title="TIAGo House-Errand Bot API", version="1.1.0")
+app = FastAPI(title="TIAGo House-Errand Bot API", version="1.2.0")
 
 
 class RoomRequest(BaseModel):
@@ -688,7 +789,7 @@ def navigate_room(req: RoomRequest) -> JSONResponse:
 def navigate_pose(req: PoseRequest) -> JSONResponse:
     with _state_lock:
         _state.waypoint_queue = [(req.x, req.y, req.theta)]
-        _state.nav_phase = "rotate_to_goal"
+        _state.nav_phase = "unstick"
         _state.task = TaskState.NAVIGATING
         _state.task_description = f"navigating to ({req.x:.2f}, {req.y:.2f})"
     return JSONResponse({"status": "navigating", "target": {"x": req.x, "y": req.y, "theta": req.theta}})
@@ -814,7 +915,7 @@ def main() -> None:
     if _WEBOTS and robot is not None:
         _last_battery_tick = time.time()
         while robot.step(time_step) != -1:
-            _step_odometry_and_navigation()
+            _step_navigation()
             now = time.time()
             if now - _last_battery_tick > 60:
                 with _state_lock:
