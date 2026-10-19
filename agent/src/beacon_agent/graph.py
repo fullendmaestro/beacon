@@ -1,4 +1,4 @@
-"""Beacon Agent graph for deployment with Smart Home MCP tools."""
+"""Beacon Agent graph – TIAGo House-Errand Bot edition."""
 
 from __future__ import annotations
 
@@ -28,15 +28,15 @@ try:
 except ImportError:
     pass
 
-from rover_mcp.server import rover_mcp as rover_mcp_server
 from smarthome_mcp.server import mcp as smarthome_mcp_server
+from tiago_mcp.server import tiago_mcp as tiago_mcp_server
 
 load_dotenv()
 
 
 def _ensure_smart_home_hub_running(host: str = "127.0.0.1", port: int = 8000) -> None:
     """
-    Ensure the Smart Home Hub & Rover API server is listening on `host:port`.
+    Ensure the Smart Home Hub API server is listening on `host:port`.
     If Webots is not currently running the controller on port 8000, start the
     standalone hub controller in a background daemon thread so the frontend
     and MCP tools never get ERR_CONNECTION_REFUSED.
@@ -137,18 +137,18 @@ model = ChatGoogleGenerativeAI(
 
 
 async def _load_all_mcp_tools() -> tuple[list[BaseTool], list[BaseTool]]:
-    """Discover tools exposed by both the Smart Home MCP Server and the Rover MCP Server."""
+    """Discover tools exposed by the Smart Home MCP Server and the TIAGo MCP Server."""
     async with (
         MCPAdapter(smarthome_mcp_server) as home_adapter,
-        MCPAdapter(rover_mcp_server) as rover_adapter,
+        MCPAdapter(tiago_mcp_server) as tiago_adapter,
     ):
         home_tools = await home_adapter.list_tools()
-        rover_tools = await rover_adapter.list_tools()
-        return list(home_tools), list(rover_tools)
+        tiago_tools = await tiago_adapter.list_tools()
+        return list(home_tools), list(tiago_tools)
 
 
 def _get_mcp_tool_sets() -> tuple[list[BaseTool], list[BaseTool]]:
-    """Retrieve Smart Home and Rover MCP tool sets synchronously using an event loop."""
+    """Retrieve Smart Home and TIAGo MCP tool sets synchronously using an event loop."""
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -163,35 +163,44 @@ def _get_mcp_tool_sets() -> tuple[list[BaseTool], list[BaseTool]]:
 
 
 def get_all_mcp_tools() -> list[BaseTool]:
-    """Retrieve combined Smart Home and Rover MCP tools synchronously."""
-    home_tools, r_tools = _get_mcp_tool_sets()
-    return [*home_tools, *r_tools]
+    """Retrieve combined Smart Home and TIAGo MCP tools synchronously."""
+    home_tools, t_tools = _get_mcp_tool_sets()
+    return [*home_tools, *t_tools]
 
 
-smarthome_tools, rover_tools = _get_mcp_tool_sets()
-mcp_tools = [*smarthome_tools, *rover_tools]
+smarthome_tools, tiago_tools = _get_mcp_tool_sets()
+mcp_tools = [*smarthome_tools, *tiago_tools]
 tools = [calculator, utc_now, *mcp_tools]
 
 BEACON_SYSTEM_PROMPT = (
-    "You are Beacon, an intelligent smart home orchestrator and robotic fleet commander for a connected Webots 3D estate.\n"
-    "You have real-time control and telemetry across two MCP tool suites:\n"
+    "You are Beacon, an intelligent smart home orchestrator and domestic robot commander.\n"
+    "You oversee a connected Webots 3D smart home staffed by a PAL Robotics TIAGo house-errand bot.\n"
+    "You have real-time control and telemetry across two MCP tool suites:\n\n"
     "1. **Smart Home MCP (`smarthome_mcp`)**:\n"
     "   - Overview, Scenes & Sky: `get_home_summary`, `trigger_scene`, `set_environment`.\n"
     "   - Smart Lighting: `get_lights`, `get_light_state`, `set_power_state`, `set_brightness`, `set_color`.\n"
     "   - Doors, Locks, Garage & Driveway Gate: `get_doors`, `set_door_state`, `set_door_lock`.\n"
     "   - Motorized Window Blinds: `get_blinds`, `set_blind_position`.\n"
     "   - HVAC & Appliances: `get_climate_zones`, `set_climate_state`, `get_appliances`, `set_appliance_state`.\n"
-    "   - Security Cameras & Sensors: `get_cameras`, `get_sensors`.\n"
-    "2. **Autonomous Rover MCP (`rover_mcp` - KUKA youBot)**:\n"
-    "   - Route Planning & Telemetry: `get_rover_telemetry`, `plan_rover_route`.\n"
-    "   - Autonomous Navigation: `navigate_rover_to_room`, `navigate_rover_to_pose`, `stop_rover`.\n"
-    "   - Mobile Manipulation & Teleop: `set_rover_arm_pose`, `set_rover_gripper`, `drive_rover_velocity`.\n\n"
-    "**CRITICAL ROVER NAVIGATION PROTOCOL**:\n"
-    "Whenever asked to send the rover to a room or location:\n"
-    "1. Call `plan_rover_route(destination=...)` first to compute the topological waypoint path and check `blocking_doors`.\n"
-    "2. If `blocking_doors` is non-empty, explicitly unlock (`set_door_lock`) and open (`set_door_state`) each blocking door via the Smart Home MCP.\n"
+    "   - Security Cameras & Sensors: `get_cameras`, `get_sensors`.\n\n"
+    "2. **TIAGo House-Errand Bot MCP (`tiago_mcp`)**:\n"
+    "   - Telemetry & Discovery: `get_tiago_telemetry`, `list_tiago_rooms`, `list_tiago_objects`.\n"
+    "   - Route Planning: `plan_tiago_route` — always call this first to identify blocking doors.\n"
+    "   - Autonomous Navigation: `navigate_tiago_to_room`, `navigate_tiago_to_pose`, `stop_tiago`.\n"
+    "   - Arm & Gripper Control: `set_tiago_arm_pose`, `set_tiago_gripper`.\n"
+    "   - Object Manipulation: `pick_object`, `place_object`.\n"
+    "   - Head / Perception: `look_at`, `get_tiago_camera_image`.\n"
+    "   - High-level Errands: `fetch_item`, `deliver_item`, `get_errand_status`.\n\n"
+    "**CRITICAL TIAGO NAVIGATION PROTOCOL**:\n"
+    "Whenever asked to send TIAGo to a room or location:\n"
+    "1. Call `plan_tiago_route(destination=...)` first to compute the waypoint path and check `blocking_doors`.\n"
+    "2. If `blocking_doors` is non-empty, unlock (`set_door_lock`) and open (`set_door_state`) each blocking door.\n"
     "3. Optionally turn on room lights if the target room is dark.\n"
-    "4. Call `navigate_rover_to_room(destination=...)` to execute the orthogonal route trajectory."
+    "4. Call `navigate_tiago_to_room(room=...)` to execute the route.\n\n"
+    "**ERRAND BEST PRACTICE**:\n"
+    "For complex fetch/deliver tasks prefer the high-level `fetch_item` / `deliver_item` tools which\n"
+    "handle the full navigate → pick → navigate → place cycle autonomously.  Use `get_errand_status`\n"
+    "to poll progress and report back to the user."
 )
 
 graph = create_agent(

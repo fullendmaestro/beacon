@@ -57,7 +57,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/bathroom/protos/Toilet.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/lights/protos/CeilingSpotLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/trees/protos/Cypress.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/kuka/youbot/protos/Youbot.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/pal_robotics/tiago/protos/Tiago.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/pal_robotics/tiago_extensions/protos/TiagoRobotiqGripper.proto"
 
 WorldInfo {
   info [
@@ -1350,27 +1351,14 @@ Robot {
   ]
 }
 # ==============================================================================
-# BEACON AUTONOMOUS MOBILE ROBOT (KUKA YOUBOT)
+# BEACON HOUSE-ERRAND BOT (PAL ROBOTICS TIAGO)
 # ==============================================================================
-DEF BEACON_ROVER Youbot {
-  translation -3.1 -7.5 0.102838
+DEF BEACON_TIAGO Tiago {
+  translation -3.1 -7.5 0.095
   rotation 0 0 1 1.5708
-  name "Beacon Rover"
-  controller "beacon_rover_controller"
-  customData ""
-  bodySlot [
-    GPS {
-      name "gps"
-    }
-    Compass {
-      name "compass"
-    }
-    Camera {
-      translation 0.28 0 0.12
-      name "Rover Mast Camera"
-      fieldOfView 1.15
-      width 640
-      height 480
-    }
-  ]
+  name "TIAGo"
+  controller "tiago_home_controller"
+  endEffectorSlot TiagoRobotiqGripper {
+    model "2F-85"
+  }
 }

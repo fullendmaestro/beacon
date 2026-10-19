@@ -37,5 +37,5 @@ source-include = ["langgraph.json", ".env.example", "Makefile", "tests/**"]
 [tool.pyright]
 extraPaths = [
     "C:\\Users\\fullendmaestro\\AppData\\Local\\Programs\\Webots\\lib\\controller\\python",
-    "src/simulation/controllers/smart_home_controller",
+    "src/simulation/controllers/tiago_home_controller",
 ]

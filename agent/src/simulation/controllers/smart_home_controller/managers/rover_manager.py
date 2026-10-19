@@ -54,7 +54,10 @@ class RoverManager:
         return adj
 
     def init_devices(self, supervisor: Any) -> None:
-        self.rover_node = supervisor.getFromDef("BEACON_ROVER")
+        self.rover_node = (
+            supervisor.getFromDef("BEACON_TIAGO")
+            or supervisor.getFromDef("BEACON_ROVER")
+        )
         if self.rover_node:
             self.custom_data_field = self.rover_node.getField("customData")
 
