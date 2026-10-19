@@ -111,16 +111,14 @@ class PerceptionManager:
                 "type": "Camera",
             }
             for name, cam in self.cameras.items()
-            if name != "Rover Mast Camera"
         ]
-        if not any(c["name"] == "TIAGo Camera" for c in cams):
-            cams.append({
-                "id": "TIAGo Camera",
-                "name": "TIAGo Camera",
-                "state": "Online",
-                "metadata": "Live • 640x480 (Orbbec Astra RGB)",
-                "type": "Camera",
-            })
+        cams.append({
+            "id": "TIAGo Camera",
+            "name": "TIAGo Camera",
+            "state": "Online",
+            "metadata": "Live • 640x480 (Orbbec Astra RGB)",
+            "type": "Camera",
+        })
         return cams
 
     def stream_camera(self, name: str) -> Generator[bytes]:

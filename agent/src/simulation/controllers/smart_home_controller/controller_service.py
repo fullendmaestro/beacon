@@ -251,7 +251,7 @@ class SmartHomeController:
                 "total_doors": len(self.access.door_states),
                 "blinds_count": len(self.access.blind_states),
                 "climate_zones": len(self.climate_appliances.climate_states),
-                "cameras_online": len(self.perception.cameras),
+                "cameras_online": len(self.perception.list_cameras()),
                 "estimated_power_watts": round(appliance_watts + light_watts + hvac_watts, 1),
                 "environment": dict(self.climate_appliances.environment_state),
                 "rover": {
