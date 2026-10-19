@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import time
+import urllib.request
 from collections.abc import Generator
 from typing import Any, cast
 
@@ -101,7 +102,7 @@ class PerceptionManager:
             self.sensor_states[name]["state"] = "Low Light / Night" if is_dark else "Daylight"
 
     def list_cameras(self) -> list[dict[str, Any]]:
-        return [
+        cams = [
             {
                 "id": name,
                 "name": name,
@@ -110,9 +111,47 @@ class PerceptionManager:
                 "type": "Camera",
             }
             for name, cam in self.cameras.items()
+            if name != "Rover Mast Camera"
         ]
+        if not any(c["name"] == "TIAGo Camera" for c in cams):
+            cams.append({
+                "id": "TIAGo Camera",
+                "name": "TIAGo Camera",
+                "state": "Online",
+                "metadata": "Live • 640x480 (Orbbec Astra RGB)",
+                "type": "Camera",
+            })
+        return cams
 
     def stream_camera(self, name: str) -> Generator[bytes]:
+        if name in ("TIAGo Camera", "tiago_camera", "TIAGo Head Camera", "Astra rgb"):
+            try:
+                req = urllib.request.Request("http://127.0.0.1:8001/camera/stream")
+                with urllib.request.urlopen(req, timeout=15.0) as resp:
+                    while True:
+                        chunk = resp.read(4096)
+                        if not chunk:
+                            break
+                        yield chunk
+                return
+            except Exception:
+                pass
+
+            # Fallback frame polling
+            for _ in range(50):
+                try:
+                    req = urllib.request.Request("http://127.0.0.1:8001/camera/frame")
+                    with urllib.request.urlopen(req, timeout=1.0) as resp:
+                        frame = resp.read()
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                        )
+                except Exception:
+                    pass
+                time.sleep(0.1)
+            return
+
         cam = self.cameras.get(name)
         if not cam:
             return

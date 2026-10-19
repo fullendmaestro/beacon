@@ -1308,15 +1308,6 @@ Robot {
       width 640
       height 480
     }
-    # 7. Rover Mast Camera: First-person view at the rover's dock/corridor vantage point
-    DEF ROVER_MAST_CAMERA Camera {
-      translation -3.1 -7.22 0.22
-      rotation 0 0 1 1.5708
-      name "Rover Mast Camera"
-      fieldOfView 1.15
-      width 640
-      height 480
-    }
     # Motion / Presence Distance Sensors
     DistanceSensor {
       translation 0.2 -7.49 1.1

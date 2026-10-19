@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import threading
+import io
 import time
 import urllib.request
 from dataclasses import dataclass, field
@@ -16,8 +17,12 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
+try:
+    from PIL import Image
+except ImportError:
+    Image = None  # type: ignore[assignment]
 
 logger = logging.getLogger("tiago_home_controller")
 
@@ -864,6 +869,44 @@ def camera_snapshot() -> JSONResponse:
     except Exception:
         snap_path = ""
     return JSONResponse({"status": "ok", "image_path": snap_path, "width": 640, "height": 480})
+
+
+@app.get("/camera/frame")
+def camera_frame() -> Response:
+    try:
+        w = _camera.getWidth() if hasattr(_camera, "getWidth") else 640
+        h = _camera.getHeight() if hasattr(_camera, "getHeight") else 480
+        raw = _camera.getImage() if hasattr(_camera, "getImage") else None
+        if raw and Image is not None:
+            img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=75)
+            return Response(content=buf.getvalue(), media_type="image/jpeg")
+    except Exception:
+        pass
+    return Response(status_code=503)
+
+
+@app.get("/camera/stream")
+def camera_stream() -> StreamingResponse:
+    def gen():
+        w = _camera.getWidth() if hasattr(_camera, "getWidth") else 640
+        h = _camera.getHeight() if hasattr(_camera, "getHeight") else 480
+        while True:
+            try:
+                raw = _camera.getImage() if hasattr(_camera, "getImage") else None
+                if raw and Image is not None:
+                    img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
+                    buf = io.BytesIO()
+                    img.convert("RGB").save(buf, format="JPEG", quality=60)
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n" + buf.getvalue() + b"\r\n"
+                    )
+            except Exception:
+                pass
+            time.sleep(0.08)
+    return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.get("/rooms")

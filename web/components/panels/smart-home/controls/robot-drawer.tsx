@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   Bot,
+  Camera,
   Navigation,
   OctagonX,
   Battery,
@@ -28,7 +29,7 @@ import {
   TIAGO_ARM_PRESETS,
   TIAGO_HEAD_TARGETS,
 } from "../constants";
-import type { RobotDevice } from "@/lib/smart-home-api";
+import { smartHomeApi, type RobotDevice } from "@/lib/smart-home-api";
 
 interface RobotDrawerProps {
   robot: RobotDevice | null;
@@ -325,6 +326,28 @@ export function RobotDrawer({
                       {t.label}
                     </Button>
                   ))}
+                </div>
+              </div>
+
+              {/* 5. Live Robot Camera Feed */}
+              <div className="flex flex-col gap-2.5 border-t border-border/50 pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Camera className="size-3.5 text-teal-500" />
+                    Live Head Camera Feed
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">Orbbec Astra RGB</span>
+                </div>
+                <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-border/60 bg-black shadow-inner">
+                  <div className="absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+                    <span className="size-1.5 rounded-full bg-red-500 animate-pulse" />
+                    TIAGo POV Live
+                  </div>
+                  <img
+                    src={smartHomeApi.getStreamUrl("TIAGo Camera")}
+                    alt="TIAGo Live Camera Feed"
+                    className="h-full w-full object-cover"
+                  />
                 </div>
               </div>
             </div>
