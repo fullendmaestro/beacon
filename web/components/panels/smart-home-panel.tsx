@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 import { DeviceCategories } from "./smart-home/device-categories";
 import { DeviceList } from "./smart-home/device-list";
 import { PanelLayout } from "./panel-layout";
@@ -18,7 +19,7 @@ export function SmartHomePanel() {
         !activeCategory ? "Live Webots IoT Estate & Automation Hub" : undefined
       }
       onBack={activeCategory ? () => setActiveCategory(null) : undefined}
-      className="p-6"
+      className={cn("p-6", activeCategory && "flex flex-col")}
     >
       {activeCategory ? (
         <DeviceList category={activeCategory} />

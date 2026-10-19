@@ -27,7 +27,7 @@ export function PanelLayout({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="relative flex min-h-[4.5rem] flex-col items-center justify-center border-b border-border/40 px-12 py-3">
+      <div className="relative flex min-h-[4.5rem] shrink-0 flex-col items-center justify-center border-b border-border/40 px-12 py-3">
         {onBack && (
           <Button
             variant="ghost"
@@ -64,7 +64,7 @@ export function PanelLayout({
       </div>
 
       {/* Body */}
-      <div className={cn("flex-1 overflow-y-auto", className)}>{children}</div>
+      <div className={cn("flex-1 min-h-0 overflow-y-auto", className)}>{children}</div>
     </div>
   );
 }
