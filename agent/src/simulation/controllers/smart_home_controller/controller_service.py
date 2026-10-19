@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
+import math
 import queue
 import threading
+import urllib.request
 from collections.abc import Generator
 from typing import Any
 
@@ -275,8 +278,46 @@ class SmartHomeController:
     # --- Beacon Home Robots (PAL Robotics TIAGo) Facade ---
 
     def list_robots(self) -> list[dict[str, Any]]:
+        tiago_direct = None
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8001/telemetry")
+            with urllib.request.urlopen(req, timeout=0.3) as resp:
+                if resp.status == 200:
+                    tiago_direct = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+
         with self.state_lock:
             r = self.rover.rover_state
+            if tiago_direct:
+                pose = tiago_direct.get("pose", {})
+                x = pose.get("x", r.get("position", [-3.1, -7.5, 0.1])[0])
+                y = pose.get("y", r.get("position", [-3.1, -7.5, 0.1])[1])
+                theta = pose.get("theta", r.get("heading_rad", 1.57))
+                nearest_node, room_name = self.rover._infer_nearest_node(x, y)
+                task = tiago_direct.get("task", "idle")
+                is_docked = nearest_node == "foyer" and math.hypot(x - (-3.10), y - (-7.62)) < 0.4
+                status = "Navigating" if "navigat" in task.lower() else ("Docked" if is_docked else ("Idle" if task == "idle" else task))
+                return [
+                    {
+                        "id": "tiago",
+                        "name": "TIAGo",
+                        "model": "PAL Robotics TIAGo",
+                        "type": "Mobile Manipulator",
+                        "status": status,
+                        "current_room": room_name,
+                        "current_node": nearest_node,
+                        "battery_pct": round(tiago_direct.get("battery", 85)),
+                        "pose": {"x": round(x, 3), "y": round(y, 3), "theta": round(theta, 3)},
+                        "target_destination": task.replace("navigating to", "").strip() if "navigating to" in task else None,
+                        "arm_pose": tiago_direct.get("arm_pose", "home"),
+                        "gripper": tiago_direct.get("gripper", "open"),
+                        "held_object": tiago_direct.get("held_object", ""),
+                        "task_description": task,
+                        "online": True,
+                    }
+                ]
+
             return [
                 {
                     "id": "tiago",
@@ -300,6 +341,67 @@ class SmartHomeController:
                     "online": bool(self.rover.rover_node),
                 }
             ]
+
+    def request_robot_action(self, action_data: dict[str, Any]) -> dict[str, Any]:
+        action = action_data.get("action")
+        try:
+            if action == "navigate" and action_data.get("destination"):
+                payload = json.dumps({"room": action_data["destination"]}).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/navigate/room",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            elif action == "stop":
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/stop",
+                    data=b"{}",
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            elif action == "arm" and action_data.get("pose"):
+                payload = json.dumps({"pose": action_data["pose"]}).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/arm/pose",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            elif action == "gripper" and action_data.get("gripper_state"):
+                payload = json.dumps({"state": action_data["gripper_state"]}).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/gripper/set",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            elif action == "head" and action_data.get("target"):
+                payload = json.dumps({"target": action_data["target"]}).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/head/look_at",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+
+        if action == "navigate" and action_data.get("destination"):
+            return self.request_rover_navigation(action_data["destination"])
+        if action == "stop":
+            return self.request_rover_control({"action": "stop"})
+        if action == "arm":
+            return self.request_rover_control({"action": "arm", "arm_pose": action_data.get("pose", "home")})
+        if action == "gripper":
+            g_state = "grip" if action_data.get("gripper_state") == "closed" else "release"
+            return self.request_rover_control({"action": "gripper", "gripper_state": g_state})
+        return {"success": True}
 
     # --- Autonomous Mobile Robot (Rover) Facade ---
 

@@ -279,41 +279,22 @@ export const smartHomeApi = {
     }),
 
   // Beacon Home Robots (PAL Robotics TIAGo)
-  getRobots: async (): Promise<RobotDevice[]> => {
-    try {
-      const res = await fetch("/api/robots", { cache: "no-store" });
-      if (res.ok) return await res.json();
-    } catch {
-      // Fallback to hub endpoint
-    }
-    return request<RobotDevice[]>("/api/robots");
-  },
-  controlRobot: async (payload: {
+  getRobots: () => request<RobotDevice[]>("/api/robots"),
+  controlRobot: (payload: {
     robot_id?: string;
     action: "navigate" | "stop" | "arm" | "gripper" | "head";
     destination?: string;
     pose?: string;
     gripper_state?: "open" | "closed";
     target?: string;
-  }): Promise<{ success: boolean; status?: string } | RobotDevice> => {
-    try {
-      const res = await fetch("/api/robots", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) return await res.json();
-    } catch {
-      // Fallback
-    }
-    return request<{ success: boolean; status?: string } | RobotDevice>(
+  }) =>
+    request<{ success: boolean; status?: string } | RobotDevice>(
       "/api/robots",
       {
         method: "POST",
         body: JSON.stringify(payload),
       },
-    );
-  },
+    ),
   navigateRobot: (room: string, robotId = "tiago") =>
     smartHomeApi.controlRobot({
       robot_id: robotId,
