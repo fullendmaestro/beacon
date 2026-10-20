@@ -2,7 +2,7 @@
 
 import { usePanelState } from "@/hooks/use-panel-state";
 import { SmartHomePanel } from "@/components/panels/smart-home-panel";
-import { ShoppingListPanel } from "@/components/panels/shopping-list-panel";
+import { AiTasksPanel } from "@/components/panels/ai-tasks-panel";
 import { ThreadsPanel } from "@/components/panels/threads-panel";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,7 @@ export function RightPanelDrawer() {
         <div className="flex flex-1 min-h-0 flex-col">
           {activePanel === "threads" && <ThreadsPanel />}
           {activePanel === "smart-home" && <SmartHomePanel />}
-          {activePanel === "shopping-list" && <ShoppingListPanel />}
+          {activePanel === "ai-tasks" && <AiTasksPanel />}
         </div>
       </div>
     </div>

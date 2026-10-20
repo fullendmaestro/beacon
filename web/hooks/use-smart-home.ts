@@ -13,7 +13,7 @@ import {
   type ApplianceDevice,
   type SensorDevice,
   type RobotDevice,
-  type RoverTelemetry,
+  type TasksAndEventsResponse,
   type ScenePreset,
   type TimeOfDay,
 } from "@/lib/smart-home-api";
@@ -82,7 +82,6 @@ export function useCategoryDevices(category: SmartCategory) {
   const [appliances, setAppliances] = useState<ApplianceDevice[]>([]);
   const [sensors, setSensors] = useState<SensorDevice[]>([]);
   const [robots, setRobots] = useState<RobotDevice[]>([]);
-  const [rover, setRover] = useState<RoverTelemetry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchCategory = useCallback(async () => {
@@ -148,9 +147,62 @@ export function useCategoryDevices(category: SmartCategory) {
     sensors,
     robots,
     setRobots,
-    rover,
-    setRover,
     isLoading,
     refresh: fetchCategory,
+  };
+}
+
+export function useAiTasks(pollInterval = 2000) {
+  const [data, setData] = useState<TasksAndEventsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await smartHomeApi.getTasks();
+      setData(res);
+    } catch {
+      // Silent retry
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTasks();
+    const timer = setInterval(fetchTasks, pollInterval);
+    return () => clearInterval(timer);
+  }, [fetchTasks, pollInterval]);
+
+  const approveTask = async (taskId: string) => {
+    await smartHomeApi.approveTask(taskId);
+    await fetchTasks();
+  };
+
+  const rejectTask = async (taskId: string) => {
+    await smartHomeApi.rejectTask(taskId);
+    await fetchTasks();
+  };
+
+  const updateSettings = async (payload: {
+    ambient_enabled?: boolean;
+    hitl_enabled?: boolean;
+  }) => {
+    const updated = await smartHomeApi.updateTaskSettings(payload);
+    setData(updated);
+  };
+
+  const triggerScenario = async (scenario: string) => {
+    await smartHomeApi.triggerScenario(scenario);
+    await fetchTasks();
+  };
+
+  return {
+    data,
+    isLoading,
+    refresh: fetchTasks,
+    approveTask,
+    rejectTask,
+    updateSettings,
+    triggerScenario,
   };
 }
