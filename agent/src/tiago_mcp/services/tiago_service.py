@@ -11,37 +11,94 @@ from typing import Any
 
 import httpx
 
-TIAGO_API_BASE = "http://127.0.0.1:8001"
-SMART_HOME_API_BASE = os.getenv("SMART_HOME_HUB_URL", "http://127.0.0.1:8000")
+TIAGO_API_BASE = os.getenv("TIAGO_API_URL", "http://127.0.0.1:8001").rstrip("/")
+SMART_HOME_API_BASE = os.getenv("SMART_HOME_HUB_URL", "http://127.0.0.1:8000").rstrip("/")
 _TIMEOUT = 15.0
 
 
-def _get(path: str) -> dict[str, Any]:
+async def _get(path: str, timeout: float = _TIMEOUT) -> dict[str, Any]:
     try:
-        resp = httpx.get(f"{TIAGO_API_BASE}{path}", timeout=_TIMEOUT)
-        resp.raise_for_status()
-        return resp.json()
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{TIAGO_API_BASE}{path}")
+            resp.raise_for_status()
+            return resp.json()
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc), "status": "simulation_unavailable"}
 
 
-def _post(path: str, payload: dict[str, Any] | None = None, timeout: float = _TIMEOUT) -> dict[str, Any]:
+async def _post(path: str, payload: dict[str, Any] | None = None, timeout: float = _TIMEOUT) -> dict[str, Any]:
     try:
-        resp = httpx.post(f"{TIAGO_API_BASE}{path}", json=payload or {}, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(f"{TIAGO_API_BASE}{path}", json=payload or {})
+            resp.raise_for_status()
+            return resp.json()
     except Exception as exc:  # noqa: BLE001
         return {"error": str(exc), "status": "simulation_unavailable"}
+
+
+async def _hub_get(path: str, timeout: float = 3.0) -> Any:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.get(f"{SMART_HOME_API_BASE}{path}")
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def _hub_post(path: str, payload: dict[str, Any], timeout: float = 3.0) -> Any:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(f"{SMART_HOME_API_BASE}{path}", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _create_vision_model() -> Any:
+    """Create a multimodal vision model supporting Amazon Bedrock (Nova Pro) or Google Gemini."""
+    provider = os.getenv("BEACON_LLM_PROVIDER", "").strip().lower()
+    if provider in ("bedrock", "aws", "alexa+") or os.getenv("BEDROCK_MODEL_ID"):
+        try:
+            from langchain_aws import ChatBedrockConverse  # type: ignore[import-not-found]
+
+            return ChatBedrockConverse(
+                model=os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0"),
+                region_name=os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+                temperature=0.1,
+            )
+        except Exception:
+            pass
+
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT")
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if gcp_project:
+        return ChatGoogleGenerativeAI(
+            model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
+            vertexai=True,
+            project=gcp_project,
+            location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+            temperature=0.1,
+        )
+    if api_key:
+        return ChatGoogleGenerativeAI(
+            model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
+            google_api_key=api_key,
+            temperature=0.1,
+        )
+    return ChatGoogleGenerativeAI(
+        model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
+        vertexai=True,
+        location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+        temperature=0.1,
+    )
 
 
 # ── Telemetry ──────────────────────────────────────────────────────────────────
 
-def get_tiago_telemetry() -> dict[str, Any]:
+async def get_tiago_telemetry() -> dict[str, Any]:
     """Return full TIAGo telemetry: pose, battery, gripper state, current task, held object, patrol logs."""
-    res = _get("/telemetry")
+    res = await _get("/telemetry")
     if res.get("status") == "simulation_unavailable":
         try:
-            robots = httpx.get(f"{SMART_HOME_API_BASE}/api/robots", timeout=3.0).json()
+            robots = await _hub_get("/api/robots")
             if robots:
                 return robots[0]
         except Exception:
@@ -51,103 +108,79 @@ def get_tiago_telemetry() -> dict[str, Any]:
 
 # ── Navigation ─────────────────────────────────────────────────────────────────
 
-def navigate_to_room(room: str) -> dict[str, Any]:
+async def navigate_to_room(room: str) -> dict[str, Any]:
     """Command TIAGo to navigate to a named room in the house."""
-    res = _post("/navigate/room", {"room": room})
+    res = await _post("/navigate/room", {"room": room})
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={"action": "navigate", "destination": room},
-                timeout=3.0,
-            ).json()
+            return await _hub_post("/api/robots", {"action": "navigate", "destination": room})
         except Exception:
             pass
     return res
 
 
-def navigate_to_pose(x: float, y: float, theta: float) -> dict[str, Any]:
+async def navigate_to_pose(x: float, y: float, theta: float) -> dict[str, Any]:
     """Command TIAGo to navigate to an absolute (x, y, θ) pose."""
-    return _post("/navigate/pose", {"x": x, "y": y, "theta": theta})
+    return await _post("/navigate/pose", {"x": x, "y": y, "theta": theta})
 
 
-def stop_tiago() -> dict[str, Any]:
+async def stop_tiago() -> dict[str, Any]:
     """Immediately halt TIAGo's current navigation or manipulation task."""
-    res = _post("/stop")
+    res = await _post("/stop")
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={"action": "stop"},
-                timeout=3.0,
-            ).json()
+            return await _hub_post("/api/robots", {"action": "stop"})
         except Exception:
             pass
     return res
 
 
-def get_route_plan(destination: str) -> dict[str, Any]:
+async def get_route_plan(destination: str) -> dict[str, Any]:
     """Compute and return the topological waypoint path to *destination*, including any blocking doors."""
-    return _post("/route/plan", {"destination": destination})
+    return await _post("/route/plan", {"destination": destination})
 
 
 # ── Manipulation (Supervisor-Assisted Magnetic Grasp) ─────────────────────────
 
-def pick_object(object_name: str) -> dict[str, Any]:
+async def pick_object(object_name: str) -> dict[str, Any]:
     """Command TIAGo to magnetically grasp a named object at its current position."""
-    res = _post("/manipulate/pick", {"object": object_name})
+    res = await _post("/manipulate/pick", {"object": object_name})
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={"action": "pick", "object": object_name},
-                timeout=3.0,
-            ).json()
+            return await _hub_post("/api/robots", {"action": "pick", "object": object_name})
         except Exception:
             pass
     return res
 
 
-def place_object(location: str) -> dict[str, Any]:
+async def place_object(location: str) -> dict[str, Any]:
     """Command TIAGo to place the held object onto the target room surface."""
-    res = _post("/manipulate/place", {"location": location})
+    res = await _post("/manipulate/place", {"location": location})
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={"action": "place", "location": location},
-                timeout=3.0,
-            ).json()
+            return await _hub_post("/api/robots", {"action": "place", "location": location})
         except Exception:
             pass
     return res
 
 
-def set_gripper(state: str) -> dict[str, Any]:
+async def set_gripper(state: str) -> dict[str, Any]:
     """Open or close TIAGo's gripper. *state* must be 'open' or 'closed'."""
-    res = _post("/gripper/set", {"state": state})
+    res = await _post("/gripper/set", {"state": state})
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={"action": "gripper", "gripper_state": state},
-                timeout=3.0,
-            ).json()
+            return await _hub_post("/api/robots", {"action": "gripper", "gripper_state": state})
         except Exception:
             pass
     return res
 
 
-def set_arm_pose(pose_name: str) -> dict[str, Any]:
+async def set_arm_pose(pose_name: str) -> dict[str, Any]:
     """Move TIAGo's arm to a named preset pose (e.g. 'home', 'carry', 'reach_table', 'reach_floor', 'handover')."""
-    res = _post("/arm/pose", {"pose": pose_name})
+    res = await _post("/arm/pose", {"pose": pose_name})
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={"action": "arm", "pose": pose_name},
-                timeout=3.0,
-            ).json()
+            return await _hub_post("/api/robots", {"action": "arm", "pose": pose_name})
         except Exception:
             pass
     return res
@@ -155,20 +188,20 @@ def set_arm_pose(pose_name: str) -> dict[str, Any]:
 
 # ── Head / Multimodal Perception & Visual Inspector ────────────────────────────
 
-def look_at(target: str) -> dict[str, Any]:
+async def look_at(target: str) -> dict[str, Any]:
     """Point TIAGo's head camera toward a named target or direction ('forward', 'left', 'right', 'up', 'down')."""
-    return _post("/head/look_at", {"target": target})
+    return await _post("/head/look_at", {"target": target})
 
 
-def get_camera_image() -> dict[str, Any]:
+async def get_camera_image() -> dict[str, Any]:
     """Capture a snapshot from TIAGo's head camera and return its metadata and nearby detections."""
-    res = _get("/camera/snapshot")
+    res = await _get("/camera/snapshot")
     if "base64_jpeg" in res:
         res = {k: v for k, v in res.items() if k != "base64_jpeg"}
     return res
 
 
-def inspect_scene(
+async def inspect_scene(
     query: str = "Describe what is visible in the room, including any objects, appliances, or people.",
     room: str | None = None,
     sweep: bool = True,
@@ -178,12 +211,12 @@ def inspect_scene(
     Optionally navigates TIAGo to *room*, turns on room lights if dark, sweeps the head camera,
     captures an RGB frame + 3D Supervisor scene detections, and runs multimodal analysis.
     """
-    raw = _post("/vision/inspect", {"query": query, "room": room, "sweep": sweep}, timeout=60.0)
+    raw = await _post("/vision/inspect", {"query": query, "room": room, "sweep": sweep}, timeout=60.0)
     if raw.get("status") == "simulation_unavailable":
         # Fallback to Smart Home Hub objects & humans telemetry
         try:
-            objs = httpx.get(f"{SMART_HOME_API_BASE}/api/objects", timeout=3.0).json()
-            humans = httpx.get(f"{SMART_HOME_API_BASE}/api/humans", timeout=3.0).json()
+            objs = await _hub_get("/api/objects")
+            humans = await _hub_get("/api/humans")
             target_rm = (room or "living_room").replace("_", " ").lower()
             room_objs = [
                 {"object": o["name"], "room": o["room"], "position": o["position"]}
@@ -222,15 +255,8 @@ def inspect_scene(
     if b64:
         try:
             from langchain_core.messages import HumanMessage
-            from langchain_google_genai import ChatGoogleGenerativeAI
 
-            vlm = ChatGoogleGenerativeAI(
-                model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
-                vertexai=True,
-                project=os.getenv("GOOGLE_CLOUD_PROJECT", "master-inn-505014-t1"),
-                location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
-                temperature=0.1,
-            )
+            vlm = _create_vision_model()
             msg = HumanMessage(
                 content=[
                     {
@@ -244,7 +270,7 @@ def inspect_scene(
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
                 ]
             )
-            vlm_resp = vlm.invoke([msg])
+            vlm_resp = await vlm.ainvoke([msg])
             if vlm_resp and vlm_resp.content:
                 summary = str(vlm_resp.content)
         except Exception:
@@ -256,84 +282,78 @@ def inspect_scene(
 
 # ── Errand & Patrol helpers ────────────────────────────────────────────────────
 
-def deliver_item(item: str, from_location: str, to_location: str) -> dict[str, Any]:
+async def deliver_item(item: str, from_location: str, to_location: str) -> dict[str, Any]:
     """High-level errand: navigate → magnetic grasp *item* at *from_location* → deliver to *to_location*."""
-    res = _post("/errand/deliver", {
+    res = await _post("/errand/deliver", {
         "item": item,
         "from_location": from_location,
         "to_location": to_location,
     })
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={
+            return await _hub_post(
+                "/api/robots",
+                {
                     "action": "deliver",
                     "item": item,
                     "from_location": from_location,
                     "to_location": to_location,
                 },
-                timeout=3.0,
-            ).json()
+            )
         except Exception:
             pass
     return res
 
 
-def fetch_item(item: str, from_location: str) -> dict[str, Any]:
+async def fetch_item(item: str, from_location: str) -> dict[str, Any]:
     """High-level errand: navigate to *from_location*, magnetic grasp *item*, return to foyer dock."""
-    res = _post("/errand/fetch", {"item": item, "from_location": from_location})
+    res = await _post("/errand/fetch", {"item": item, "from_location": from_location})
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={"action": "fetch", "item": item, "from_location": from_location},
-                timeout=3.0,
-            ).json()
+            return await _hub_post(
+                "/api/robots",
+                {"action": "fetch", "item": item, "from_location": from_location},
+            )
         except Exception:
             pass
     return res
 
 
-def patrol_home(rooms: list[str] | None = None) -> dict[str, Any]:
+async def patrol_home(rooms: list[str] | None = None) -> dict[str, Any]:
     """High-level security patrol errand across multiple rooms with camera sweeps and object/human logging."""
-    res = _post("/errand/patrol", {"rooms": rooms})
+    res = await _post("/errand/patrol", {"rooms": rooms})
     if res.get("status") == "simulation_unavailable":
         try:
-            return httpx.post(
-                f"{SMART_HOME_API_BASE}/api/robots",
-                json={"action": "patrol", "rooms": rooms},
-                timeout=3.0,
-            ).json()
+            return await _hub_post("/api/robots", {"action": "patrol", "rooms": rooms})
         except Exception:
             pass
     return res
 
 
-def get_errand_status() -> dict[str, Any]:
+async def get_errand_status() -> dict[str, Any]:
     """Return the status and progress of the currently running high-level errand or patrol."""
-    return _get("/errand/status")
+    return await _get("/errand/status")
 
 
-def list_known_rooms() -> dict[str, Any]:
+async def list_known_rooms() -> dict[str, Any]:
     """Return the list of named rooms TIAGo knows how to navigate to."""
-    res = _get("/rooms")
+    res = await _get("/rooms")
     if res.get("status") == "simulation_unavailable":
         return {
             "rooms": [
-                "foyer", "living_room", "kitchen", "dining_room",
+                "foyer", "front_door", "living_room", "kitchen", "dining_room",
                 "master_bedroom", "bathroom", "study_bedroom", "utility_room",
             ]
         }
     return res
 
 
-def list_known_objects() -> dict[str, Any]:
+async def list_known_objects() -> dict[str, Any]:
     """Return a catalogue of objects TIAGo can recognise and interact with, including 3D coordinates."""
-    res = _get("/objects")
+    res = await _get("/objects")
     if res.get("status") == "simulation_unavailable":
         try:
-            objs = httpx.get(f"{SMART_HOME_API_BASE}/api/objects", timeout=3.0).json()
+            objs = await _hub_get("/api/objects")
             return {"objects": [o["name"] for o in objs], "details": objs}
         except Exception:
             pass

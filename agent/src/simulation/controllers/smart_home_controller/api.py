@@ -32,7 +32,15 @@ def create_app(controller: SmartHomeController) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # --- Home Overview & Automation Scenes ---
+    # --- Home Overview, Shared Config & Automation Scenes ---
+
+    @app.get("/api/config")
+    def get_shared_config() -> dict[str, Any]:
+        return controller.get_config()
+
+    @app.get("/api/state")
+    def get_consolidated_state() -> dict[str, Any]:
+        return controller.get_consolidated_state()
 
     @app.get("/api/home/summary")
     def get_home_summary() -> dict[str, Any]:

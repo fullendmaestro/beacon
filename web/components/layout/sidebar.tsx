@@ -16,7 +16,7 @@ const NAV_ITEMS: { id: PanelType; icon: React.ElementType; label: string }[] = [
 
 export function Sidebar() {
   const { activePanel, setActivePanel } = usePanelState();
-  const { data: tasksData } = useAiTasks(3000);
+  const { data: tasksData } = useAiTasks(5000);
   const pendingCount = tasksData?.pending_hitl_count ?? 0;
 
   return (

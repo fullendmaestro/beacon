@@ -1,42 +1,26 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import urllib.request
 import uuid
 from typing import Any
 
-OBJECT_DEF_MAP: dict[str, dict[str, Any]] = {
-    "cup":            {"def": "OBJ_CUP",            "default_room": "Kitchen",        "pos": [-2.35, -2.15, 0.955]},
-    "bottle":         {"def": "OBJ_BOTTLE",         "default_room": "Kitchen",        "pos": [-2.35, -2.45, 1.000]},
-    "medicine_box":   {"def": "OBJ_MEDICINE_BOX",   "default_room": "Kitchen",        "pos": [-2.35, -2.75, 0.940]},
-    "plate":          {"def": "OBJ_PLATE",          "default_room": "Kitchen",        "pos": [-2.68, -2.35, 0.915]},
-    "tray":           {"def": "OBJ_TRAY",           "default_room": "Kitchen",        "pos": [-2.68, -2.70, 0.915]},
-    "remote_control": {"def": "OBJ_REMOTE_CONTROL", "default_room": "Living Room",    "pos": [-5.85, -2.65, 0.565]},
-    "keys":           {"def": "OBJ_KEYS",           "default_room": "Dining Room",    "pos": [-10.10, -1.63, 0.755]},
-    "book":           {"def": "OBJ_BOOK",           "default_room": "Study Bedroom",  "pos": [-6.85, -12.20, 0.735]},
-    "phone":          {"def": "OBJ_PHONE",          "default_room": "Master Bedroom", "pos": [-2.40, -9.80, 0.580]},
-    "glasses":        {"def": "OBJ_GLASSES",        "default_room": "Kitchen",        "pos": [-1.43, -3.61, 0.755]},
-}
-
-SURFACE_PRESETS: dict[str, tuple[float, float, float, str]] = {
-    "kitchen_island":  (-2.35, -2.40, 0.96, "Kitchen"),
-    "breakfast_table": (-1.43, -3.61, 0.76, "Kitchen"),
-    "coffee_table":    (-5.85, -2.65, 0.57, "Living Room"),
-    "dining_table":    (-10.10, -1.63, 0.76, "Dining Room"),
-    "study_desk":      (-6.85, -12.20, 0.74, "Study Bedroom"),
-    "master_bed":      (-2.40, -9.80, 0.58, "Master Bedroom"),
-    "bathroom_vanity": (-5.35, -9.98, 1.08, "Bathroom"),
-    "foyer_bench":     (-2.70, -7.20, 0.45, "Foyer"),
-}
+from constants import (
+    OBJECT_DEF_MAP,
+    SURFACE_PRESETS,
+    TIAGO_API_URL,
+    infer_room_from_coords,
+)
 
 
 def _post_tiago(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
-            f"http://127.0.0.1:8001{path}",
+            f"{TIAGO_API_URL}{path}",
             data=data,
             headers={"Content-Type": "application/json"},
             method="POST",
@@ -45,6 +29,45 @@ def _post_tiago(path: str, payload: dict[str, Any]) -> dict[str, Any]:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as exc:
         return {"status": "queued_offline", "error": str(exc)}
+
+
+def _create_proactive_llm() -> Any:
+    """Instantiate optional Amazon Bedrock (Alexa+ Nova) or Google Gemini model for proactive ambient AI reasoning."""
+    provider = os.getenv("BEACON_LLM_PROVIDER", "").strip().lower()
+    if provider in ("bedrock", "aws", "alexa+") or os.getenv("BEDROCK_MODEL_ID"):
+        try:
+            from langchain_aws import ChatBedrockConverse  # type: ignore[import-not-found]
+
+            return ChatBedrockConverse(
+                model=os.getenv("BEDROCK_MODEL_ID", "us.amazon.nova-pro-v1:0"),
+                region_name=os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+                temperature=0.1,
+            )
+        except Exception:
+            pass
+
+    gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT")
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if gcp_project or api_key:
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+
+            if gcp_project:
+                return ChatGoogleGenerativeAI(
+                    model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
+                    vertexai=True,
+                    project=gcp_project,
+                    location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+                    temperature=0.1,
+                )
+            return ChatGoogleGenerativeAI(
+                model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
+                google_api_key=api_key,
+                temperature=0.1,
+            )
+        except Exception:
+            pass
+    return None
 
 
 class EventTaskManager:
@@ -155,6 +178,39 @@ class EventTaskManager:
                 if tf:
                     pos = [round(v, 3) for v in tf.getSFVec3f()]
                     self.object_states[name]["position"] = pos
+                    self.object_states[name]["room"] = self._infer_object_room(pos[0], pos[1])
+        # Refresh initial tasks with actual detected object rooms from the simulation scene
+        bottle_room = self.object_states.get("bottle", {}).get("room", "Kitchen")
+        for t in self.tasks:
+            if t["id"] == "task-hitl-deliver-drink":
+                t["description"] = (
+                    f"Alex (Resident) is in the Living Room and 'bottle' is currently in {bottle_room}. "
+                    f"Approve to command TIAGo to pick up the bottle from {bottle_room} using magnetic grasp "
+                    "and deliver it to the Living Room coffee table."
+                )
+
+    def _enrich_task_with_llm_async(self, task: dict[str, Any], context_summary: str) -> None:
+        """Asynchronously invoke configured LLM (Amazon Bedrock Nova / Gemini) to enrich proactive task reasoning."""
+        def _worker() -> None:
+            llm = _create_proactive_llm()
+            if llm is None:
+                return
+            try:
+                prompt = (
+                    "You are Beacon's Alexa+ Proactive Ambient Intelligence engine. "
+                    f"Event context: {context_summary}. "
+                    f"Task title: {task['title']}. Proposed actions: {json.dumps(task.get('proposed_actions', []))}. "
+                    "Provide a single concise 1-sentence rationale explaining why this action helps the resident."
+                )
+                resp = llm.invoke(prompt)
+                content = getattr(resp, "content", None)
+                if content and isinstance(content, str):
+                    stamp = time.strftime("%H:%M:%S")
+                    task["logs"].append(f"[{stamp}] [Alexa+ LLM Insight] {content.strip()}")
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True, name="beacon-proactive-llm").start()
 
     def sync_object_positions(self) -> None:
         for name, node in self.object_nodes.items():
@@ -166,19 +222,7 @@ class EventTaskManager:
 
     @staticmethod
     def _infer_object_room(x: float, y: float) -> str:
-        if x > -3.8 and y > -4.8:
-            return "Kitchen"
-        if x <= -3.8 and x > -8.0 and y > -6.0:
-            return "Living Room"
-        if x <= -8.0 and y > -6.0:
-            return "Dining Room"
-        if y <= -8.4 and x > -3.8:
-            return "Master Bedroom"
-        if y <= -8.4 and x <= -5.8:
-            return "Study Bedroom"
-        if y <= -8.4 and -5.8 < x <= -3.8:
-            return "Bathroom"
-        return "Foyer"
+        return infer_room_from_coords(x, y)
 
     def list_objects(self) -> list[dict[str, Any]]:
         self.sync_object_positions()
@@ -361,6 +405,7 @@ class EventTaskManager:
                     "logs": [f"[{now_str}] Waiting for human approval to unlock Front Entrance Door."],
                 }
                 self.tasks.insert(0, hitl_task)
+                self._enrich_task_with_llm_async(hitl_task, f"Sensor rising edge on {sensor_name}")
                 self._record_event("sensor_trigger", sensor_name, "Front Porch motion detected — created Ambient light action & HITL door unlock request.", hitl_task["id"])
 
         elif "Driveway Gate" in sensor_name:
@@ -503,6 +548,7 @@ class EventTaskManager:
                     "logs": [f"[{now_str}] Nightfall detected; awaiting human approval for full security patrol."],
                 }
                 self.tasks.insert(0, hitl_task)
+                self._enrich_task_with_llm_async(hitl_task, f"Sensor rising edge on {sensor_name}")
                 self._record_event("sensor_trigger", sensor_name, "Low light detected — Ambient shades closed & HITL security patrol proposed.", hitl_task["id"])
 
         del self.tasks[30:]
@@ -624,7 +670,8 @@ class EventTaskManager:
     ) -> dict[str, Any]:
         now_str = time.strftime("%H:%M:%S")
         actions = proposed_actions or []
-        is_ambient = mode == "ambient" and self.ambient_enabled
+        is_ambenrich_task_with_llm_async(task, f"Source={trigger_source}, Room={room}, Mode={mode}")
+        self._ient = mode == "ambient" and self.ambient_enabled
         task: dict[str, Any] = {
             "id": f"task-{mode}-{uuid.uuid4().hex[:6]}",
             "title": title,

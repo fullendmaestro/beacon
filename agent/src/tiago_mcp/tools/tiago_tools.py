@@ -19,7 +19,7 @@ tiago_mcp = FastMCP("tiago_mcp")
 # ═══════════════════════════════════════════════════════════
 
 @tiago_mcp.tool()
-def get_tiago_telemetry() -> dict:
+async def get_tiago_telemetry() -> dict:
     """
     Return TIAGo's current telemetry snapshot including:
     - `pose`    : {x, y, theta} in the world frame (metres / radians)
@@ -28,7 +28,7 @@ def get_tiago_telemetry() -> dict:
     - `arm_pose`: current named arm pose
     - `task`    : description of the active task (or 'idle')
     """
-    return svc.get_tiago_telemetry()
+    return await svc.get_tiago_telemetry()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -36,7 +36,7 @@ def get_tiago_telemetry() -> dict:
 # ═══════════════════════════════════════════════════════════
 
 @tiago_mcp.tool()
-def plan_tiago_route(
+async def plan_tiago_route(
     destination: Annotated[str, "Target room or location name"],
 ) -> dict:
     """
@@ -46,22 +46,22 @@ def plan_tiago_route(
     - `distance_m`     : estimated path length in metres
     - `blocking_doors` : list of door names that must be opened before navigation
     """
-    return svc.get_route_plan(destination)
+    return await svc.get_route_plan(destination)
 
 
 @tiago_mcp.tool()
-def navigate_tiago_to_room(
+async def navigate_tiago_to_room(
     room: Annotated[str, "Named room (e.g. 'kitchen', 'living_room', 'bedroom')"],
 ) -> dict:
     """
     Command TIAGo to autonomously navigate to a named room.
     Returns the navigation status and final pose once the robot arrives.
     """
-    return svc.navigate_to_room(room)
+    return await svc.navigate_to_room(room)
 
 
 @tiago_mcp.tool()
-def navigate_tiago_to_pose(
+async def navigate_tiago_to_pose(
     x: Annotated[float, "Target X position in metres"],
     y: Annotated[float, "Target Y position in metres"],
     theta: Annotated[float, "Target heading in radians"],
@@ -69,23 +69,23 @@ def navigate_tiago_to_pose(
     """
     Command TIAGo to navigate to an exact (x, y, θ) world-frame pose.
     """
-    return svc.navigate_to_pose(x, y, theta)
+    return await svc.navigate_to_pose(x, y, theta)
 
 
 @tiago_mcp.tool()
-def stop_tiago() -> dict:
+async def stop_tiago() -> dict:
     """
     Immediately stop TIAGo – halts both navigation and any active manipulation task.
     """
-    return svc.stop_tiago()
+    return await svc.stop_tiago()
 
 
 @tiago_mcp.tool()
-def list_tiago_rooms() -> dict:
+async def list_tiago_rooms() -> dict:
     """
     Return the catalogue of named rooms TIAGo knows how to navigate to.
     """
-    return svc.list_known_rooms()
+    return await svc.list_known_rooms()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -93,45 +93,45 @@ def list_tiago_rooms() -> dict:
 # ═══════════════════════════════════════════════════════════
 
 @tiago_mcp.tool()
-def set_tiago_arm_pose(
+async def set_tiago_arm_pose(
     pose_name: Annotated[str, "Preset arm pose: 'home' | 'carry' | 'reach_table' | 'reach_floor' | 'handover'"],
 ) -> dict:
     """
     Move TIAGo's 7-DoF arm to a named preset configuration.
     Preset poses available: 'home', 'carry', 'reach_table', 'reach_floor', 'handover'.
     """
-    return svc.set_arm_pose(pose_name)
+    return await svc.set_arm_pose(pose_name)
 
 
 @tiago_mcp.tool()
-def set_tiago_gripper(
+async def set_tiago_gripper(
     state: Annotated[str, "'open' to release, 'closed' to grasp"],
 ) -> dict:
     """
     Open or close TIAGo's parallel gripper.
     """
-    return svc.set_gripper(state)
+    return await svc.set_gripper(state)
 
 
 @tiago_mcp.tool()
-def pick_object(
+async def pick_object(
     object_name: Annotated[str, "Name of the object to grasp"],
 ) -> dict:
     """
     Command TIAGo to grasp a named object at its detected location.
     The robot will align its arm, lower the gripper, close it, and lift the object.
     """
-    return svc.pick_object(object_name)
+    return await svc.pick_object(object_name)
 
 
 @tiago_mcp.tool()
-def place_object(
+async def place_object(
     location: Annotated[str, "Named surface or location to place the object on"],
 ) -> dict:
     """
     Command TIAGo to place the currently held object onto a named surface or location.
     """
-    return svc.place_object(location)
+    return await svc.place_object(location)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -139,26 +139,26 @@ def place_object(
 # ═══════════════════════════════════════════════════════════
 
 @tiago_mcp.tool()
-def look_at(
+async def look_at(
     target: Annotated[str, "Named target or direction: 'forward' | 'left' | 'right' | 'up' | 'down' | object name"],
 ) -> dict:
     """
     Point TIAGo's head camera toward a named target or direction.
     """
-    return svc.look_at(target)
+    return await svc.look_at(target)
 
 
 @tiago_mcp.tool()
-def get_tiago_camera_image() -> dict:
+async def get_tiago_camera_image() -> dict:
     """
     Capture a snapshot from TIAGo's head-mounted Orbbec Astra RGB camera.
     Returns image metadata, nearby 3D household objects, and nearby humans.
     """
-    return svc.get_camera_image()
+    return await svc.get_camera_image()
 
 
 @tiago_mcp.tool()
-def inspect_scene_visually(
+async def inspect_scene_visually(
     query: Annotated[
         str,
         "Visual question or search target (e.g. 'Where are my keys?', 'Who is in the living room?')",
@@ -178,16 +178,16 @@ def inspect_scene_visually(
     sweeps TIAGo's pan/tilt head camera, captures an RGB frame + 3D Supervisor detections
     (nearby graspable objects and human actors), and returns a multimodal visual summary.
     """
-    return svc.inspect_scene(query=query, room=room, sweep=sweep)
+    return await svc.inspect_scene(query=query, room=room, sweep=sweep)
 
 
 @tiago_mcp.tool()
-def list_tiago_objects() -> dict:
+async def list_tiago_objects() -> dict:
     """
     Return the catalogue of 10 graspable household objects TIAGo can pick up with
     Supervisor-Assisted Magnetic Grasp, along with their live 3D coordinates.
     """
-    return svc.list_known_objects()
+    return await svc.list_known_objects()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -195,7 +195,7 @@ def list_tiago_objects() -> dict:
 # ═══════════════════════════════════════════════════════════
 
 @tiago_mcp.tool()
-def deliver_item(
+async def deliver_item(
     item: Annotated[str, "Name of the item to deliver (e.g. 'cup', 'bottle', 'medicine_box', 'keys')"],
     from_location: Annotated[str, "Room where the item is currently located (e.g. 'kitchen')"],
     to_location: Annotated[str, "Destination room (e.g. 'living_room', 'master_bedroom')"],
@@ -205,11 +205,11 @@ def deliver_item(
     navigate to *to_location*, and place the item onto the room surface.
     Returns task ID and live status for tracking.
     """
-    return svc.deliver_item(item, from_location, to_location)
+    return await svc.deliver_item(item, from_location, to_location)
 
 
 @tiago_mcp.tool()
-def fetch_item(
+async def fetch_item(
     item: Annotated[str, "Name of the item to fetch"],
     from_location: Annotated[str, "Room where the item currently is"],
 ) -> dict:
@@ -217,11 +217,11 @@ def fetch_item(
     High-level errand: navigate to *from_location*, pick *item* using Supervisor Magnetic Grasp,
     then return to TIAGo's foyer docking position holding the item.
     """
-    return svc.fetch_item(item, from_location)
+    return await svc.fetch_item(item, from_location)
 
 
 @tiago_mcp.tool()
-def patrol_home(
+async def patrol_home(
     rooms: Annotated[
         list[str] | None,
         "Optional list of rooms to patrol (defaults to ['living_room', 'dining_room', 'kitchen', 'master_bedroom', 'study_bedroom'])",
@@ -232,13 +232,13 @@ def patrol_home(
     ensures lighting is on, sweeps the head camera, logs all detected objects and humans,
     and returns to the foyer dock.
     """
-    return svc.patrol_home(rooms=rooms)
+    return await svc.patrol_home(rooms=rooms)
 
 
 @tiago_mcp.tool()
-def get_errand_status() -> dict:
+async def get_errand_status() -> dict:
     """
     Return the status and step-by-step progress of TIAGo's currently running
     high-level errand (deliver/fetch/patrol), including held_object and patrol_logs.
     """
-    return svc.get_errand_status()
+    return await svc.get_errand_status()

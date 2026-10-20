@@ -1,8 +1,14 @@
 # agent/src/simulation/controllers/smart_home_controller/constants.py
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
+
+SMART_HOME_HUB_URL = os.getenv("SMART_HOME_HUB_URL", os.getenv("SMART_HOME_API", "http://127.0.0.1:8000")).rstrip("/")
+TIAGO_API_URL = os.getenv("TIAGO_API_URL", "http://127.0.0.1:8001").rstrip("/")
+TIAGO_PORT = int(os.getenv("TIAGO_PORT", "8001"))
+SMART_HOME_PORT = int(os.getenv("SMART_HOME_PORT", "8000"))
 
 MAX_LIGHT_INTENSITY = 3.0
 SUPPORTED_LIGHT_TYPES = {"CeilingLight", "FloorLight", "CeilingSpotLight"}
@@ -183,6 +189,77 @@ NAV_EDGES: list[tuple[str, str, str | None]] = [
     ("kitchen_approach", "living_room", None),
     ("living_room", "dining_room", None),
 ]
+
+ROOM_ALIASES: dict[str, str] = {
+    "docking": "foyer",
+    "bedroom": "master_bedroom",
+}
+
+OBJECT_DEF_MAP: dict[str, dict[str, Any]] = {
+    "cup":            {"def": "OBJ_CUP",            "default_room": "Kitchen",        "pos": [-2.35, -2.15, 0.955]},
+    "bottle":         {"def": "OBJ_BOTTLE",         "default_room": "Kitchen",        "pos": [-2.35, -2.45, 1.000]},
+    "medicine_box":   {"def": "OBJ_MEDICINE_BOX",   "default_room": "Kitchen",        "pos": [-2.35, -2.75, 0.940]},
+    "plate":          {"def": "OBJ_PLATE",          "default_room": "Kitchen",        "pos": [-2.68, -2.35, 0.915]},
+    "tray":           {"def": "OBJ_TRAY",           "default_room": "Kitchen",        "pos": [-2.68, -2.70, 0.915]},
+    "remote_control": {"def": "OBJ_REMOTE_CONTROL", "default_room": "Living Room",    "pos": [-5.85, -2.65, 0.565]},
+    "keys":           {"def": "OBJ_KEYS",           "default_room": "Dining Room",    "pos": [-10.10, -1.63, 0.755]},
+    "book":           {"def": "OBJ_BOOK",           "default_room": "Study Bedroom",  "pos": [-6.85, -12.20, 0.735]},
+    "phone":          {"def": "OBJ_PHONE",          "default_room": "Master Bedroom", "pos": [-2.40, -9.80, 0.580]},
+    "glasses":        {"def": "OBJ_GLASSES",        "default_room": "Kitchen",        "pos": [-1.43, -3.61, 0.755]},
+}
+
+OBJECT_DEFS: dict[str, str] = {k: str(v["def"]) for k, v in OBJECT_DEF_MAP.items()}
+
+SURFACE_PRESETS: dict[str, tuple[float, float, float, str]] = {
+    "kitchen_island":  (-2.35, -2.40, 0.96, "Kitchen"),
+    "breakfast_table": (-1.43, -3.61, 0.76, "Kitchen"),
+    "coffee_table":    (-5.85, -2.65, 0.57, "Living Room"),
+    "dining_table":    (-10.10, -1.63, 0.76, "Dining Room"),
+    "study_desk":      (-6.85, -12.20, 0.74, "Study Bedroom"),
+    "master_bed":      (-2.40, -9.80, 0.58, "Master Bedroom"),
+    "bathroom_vanity": (-5.35, -9.98, 1.08, "Bathroom"),
+    "foyer_bench":     (-2.70, -7.20, 0.45, "Foyer"),
+    "utility_counter": (-1.85, -5.63, 0.88, "Utility"),
+}
+
+ROOM_PLACE_SURFACES: dict[str, tuple[float, float, float]] = {
+    "kitchen":        SURFACE_PRESETS["kitchen_island"][:3],
+    "living_room":    SURFACE_PRESETS["coffee_table"][:3],
+    "dining_room":    SURFACE_PRESETS["dining_table"][:3],
+    "master_bedroom": SURFACE_PRESETS["master_bed"][:3],
+    "bedroom":        SURFACE_PRESETS["master_bed"][:3],
+    "study_bedroom":  SURFACE_PRESETS["study_desk"][:3],
+    "bathroom":       SURFACE_PRESETS["bathroom_vanity"][:3],
+    "foyer":          SURFACE_PRESETS["foyer_bench"][:3],
+    "docking":        SURFACE_PRESETS["foyer_bench"][:3],
+    "front_door":     SURFACE_PRESETS["foyer_bench"][:3],
+    "utility_room":   SURFACE_PRESETS["utility_counter"][:3],
+}
+
+
+def infer_room_from_coords(x: float, y: float) -> str:
+    """Infer room name from 2D world coordinates across all interior and exterior zones."""
+    if x > 0.1 or y < -13.5 or y > 0.5:
+        return "Exterior"
+    if x <= -10.3 and y <= -4.2:
+        return "Patio"
+    if -2.0 <= x <= 0.1 and -6.65 <= y <= -4.8:
+        return "Utility"
+    if x > -3.89 and y > -4.8:
+        return "Kitchen"
+    if -8.0 < x <= -3.89 and y > -6.6:
+        return "Living Room"
+    if x <= -8.0 and y > -4.2:
+        return "Dining Room"
+    if y <= -8.4 and x > -3.8:
+        return "Master Bedroom"
+    if y <= -8.4 and x <= -5.8:
+        return "Study Bedroom"
+    if y <= -8.4 and -5.8 < x <= -3.8:
+        return "Bathroom"
+    if x <= -3.8 and -8.4 < y <= -6.6:
+        return "Corridor"
+    return "Foyer"
 
 
 COLOR_NAMES_MAP: dict[str, list[float]] = {

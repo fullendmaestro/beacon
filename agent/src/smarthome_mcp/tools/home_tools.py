@@ -87,10 +87,17 @@ def register_home_tools(
         category: Literal["security", "comfort", "errand", "energy", "safety"] = "errand",
         mode: Literal["ambient", "hitl"] = "hitl",
         room: str = "Living Room",
+        proposed_actions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         Create a new Ambient (auto-executed) or Human-in-the-Loop (HITL pending approval) AI Task
         in the Beacon AI Tasks sidebar panel.
+        Optional `proposed_actions` is a list of action dicts executed upon approval (or immediately if ambient), e.g.:
+        - {"type": "light", "label": "Turn on Foyer Light", "light_name": "Foyer Hallway Light", "power_state": "on", "brightness": 90}
+        - {"type": "door", "label": "Unlock Front Door", "door_name": "Front Entrance Door", "open_state": "open", "locked": False}
+        - {"type": "tiago_navigate", "label": "Send TIAGo to Kitchen", "room": "kitchen"}
+        - {"type": "tiago_deliver", "label": "Deliver bottle", "item": "bottle", "from_location": "kitchen", "to_location": "living_room"}
+        - {"type": "tiago_patrol", "label": "Security patrol", "rooms": ["living_room", "kitchen"]}
         """
         return await service.create_task(
             title=title,
@@ -98,6 +105,7 @@ def register_home_tools(
             category=category,
             mode=mode,
             room=room,
+            proposed_actions=proposed_actions,
         )
 
     @mcp.tool()

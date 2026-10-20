@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   smartHomeApi,
   type SmartCategory,
@@ -18,16 +18,22 @@ import {
   type TimeOfDay,
 } from "@/lib/smart-home-api";
 
-export function useSmartHomeSummary(pollInterval = 2500) {
+export function useSmartHomeSummary(pollInterval = 3500) {
   const [summary, setSummary] = useState<HomeSummary | null>(null);
   const [isTriggering, setIsTriggering] = useState(false);
+  const inFlightRef = useRef(false);
 
   const fetchSummary = useCallback(async () => {
+    if (inFlightRef.current) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    inFlightRef.current = true;
     try {
       const data = await smartHomeApi.getSummary();
       setSummary(data);
     } catch {
       // Silent retry on next tick if simulation is paused
+    } finally {
+      inFlightRef.current = false;
     }
   }, []);
 
@@ -83,8 +89,12 @@ export function useCategoryDevices(category: SmartCategory) {
   const [sensors, setSensors] = useState<SensorDevice[]>([]);
   const [robots, setRobots] = useState<RobotDevice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const inFlightRef = useRef(false);
 
   const fetchCategory = useCallback(async () => {
+    if (inFlightRef.current) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    inFlightRef.current = true;
     try {
       switch (category) {
         case "Lights":
@@ -115,6 +125,7 @@ export function useCategoryDevices(category: SmartCategory) {
     } catch {
       // Silent retry on next poll tick if Smart Home Hub is offline or restarting
     } finally {
+      inFlightRef.current = false;
       setIsLoading(false);
     }
   }, [category]);
@@ -124,10 +135,10 @@ export function useCategoryDevices(category: SmartCategory) {
     fetchCategory();
     const intervalMs =
       category === "Cameras"
-        ? 8000
+        ? 10000
         : category === "Sensors" || category === "Robots"
-          ? 1200
-          : 2000;
+          ? 2500
+          : 3500;
     const timer = setInterval(fetchCategory, intervalMs);
     return () => clearInterval(timer);
   }, [fetchCategory, category]);
@@ -152,17 +163,22 @@ export function useCategoryDevices(category: SmartCategory) {
   };
 }
 
-export function useAiTasks(pollInterval = 2000) {
+export function useAiTasks(pollInterval = 3500) {
   const [data, setData] = useState<TasksAndEventsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const inFlightRef = useRef(false);
 
   const fetchTasks = useCallback(async () => {
+    if (inFlightRef.current) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    inFlightRef.current = true;
     try {
       const res = await smartHomeApi.getTasks();
       setData(res);
     } catch {
       // Silent retry
     } finally {
+      inFlightRef.current = false;
       setIsLoading(false);
     }
   }, []);

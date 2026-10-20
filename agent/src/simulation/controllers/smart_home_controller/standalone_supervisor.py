@@ -13,6 +13,7 @@ from constants import (
     EXTERIOR_BARRIER_DEFS,
     LIGHT_SENSOR_NAMES,
     MOTION_SENSOR_NAMES,
+    OBJECT_DEF_MAP,
 )
 
 
@@ -220,16 +221,20 @@ class StandaloneSupervisor:
 
         # 7 Interior Doors
         doors_spec = [
-            ("Front Entrance Door", [0.0, -7.49, 0.0]),
-            ("Kitchen Passage Door", [-3.89, -3.95, 0.0]),
-            ("Master Bedroom Door", [-2.15, -8.43, 0.0]),
-            ("Study Bedroom Door", [-6.24, -8.43, 0.0]),
-            ("Main Bathroom Door", [-4.94, -8.43, 0.0]),
-            ("Guest Restroom Door", [-6.97, -7.24, 0.0]),
-            ("Utility Closet Door", [-0.91, -6.6, 0.0]),
+            ("Front Entrance Door", [0.0, -7.49, 0.0], [0.0, 0.0, 1.0, 0.0]),
+            ("Kitchen Passage Door", [-3.89, -3.95, 0.0], [0.0, 0.0, 1.0, 0.0]),
+            ("Master Bedroom Door", [-2.15, -8.43, 0.0], [0.0, 0.0, 1.0, -1.5708]),
+            ("Study Bedroom Door", [-6.24, -8.43, 0.0], [0.0, 0.0, 1.0, -1.5708]),
+            ("Main Bathroom Door", [-4.94, -8.43, 0.0], [0.0, 0.0, 1.0, -1.5708]),
+            ("Guest Restroom Door", [-6.97, -7.24, 0.0], [0.0, 0.0, 1.0, 3.14159]),
+            ("Utility Closet Door", [-0.91, -6.6, 0.0], [0.0, 0.0, 1.0, 1.5708]),
         ]
-        for d_name, pos in doors_spec:
-            self._add_node(nid, "Door", {"name": d_name, "translation": pos})
+        for d_name, pos, rot in doors_spec:
+            self._add_node(
+                nid,
+                "Door",
+                {"name": d_name, "translation": pos, "rotation": rot, "position": 0.0},
+            )
             nid += 1
 
         # Exterior Barriers (Driveway Gate & Garage Door)
@@ -272,21 +277,14 @@ class StandaloneSupervisor:
             self._add_node(nid, str(cfg["type"]), {"name": app_name})
             nid += 1
 
-        # Physical Household Objects (OBJ_*)
-        objects_spec = [
-            ("OBJ_CUP", "cup", [-2.35, -2.15, 0.955]),
-            ("OBJ_BOTTLE", "bottle", [-2.35, -2.45, 1.000]),
-            ("OBJ_MEDICINE_BOX", "medicine_box", [-2.35, -2.75, 0.940]),
-            ("OBJ_PLATE", "plate", [-2.68, -2.35, 0.915]),
-            ("OBJ_TRAY", "tray", [-2.68, -2.70, 0.915]),
-            ("OBJ_REMOTE_CONTROL", "remote_control", [-5.85, -2.65, 0.565]),
-            ("OBJ_KEYS", "keys", [-10.10, -1.63, 0.755]),
-            ("OBJ_BOOK", "book", [-6.85, -12.20, 0.735]),
-            ("OBJ_PHONE", "phone", [-2.40, -9.80, 0.580]),
-            ("OBJ_GLASSES", "glasses", [-1.43, -3.61, 0.755]),
-        ]
-        for def_name, obj_name, pos in objects_spec:
-            self._add_node(nid, "SolidBox", {"name": obj_name, "translation": pos}, def_name=def_name)
+        # Physical Household Objects (OBJ_*) from shared OBJECT_DEF_MAP
+        for obj_name, cfg in OBJECT_DEF_MAP.items():
+            self._add_node(
+                nid,
+                "SolidBox",
+                {"name": obj_name, "translation": list(cfg["pos"])},
+                def_name=str(cfg["def"]),
+            )
             nid += 1
 
         # Pedestrian Humans (RESIDENT_HUMAN & GUEST_HUMAN)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -87,16 +87,6 @@ const SCENARIO_CARDS = [
   },
 ];
 
-const CAMERA_FEEDS = [
-  "TIAGo Camera",
-  "Living Room Camera",
-  "Kitchen Camera",
-  "Front Door Camera",
-  "Driveway Camera",
-  "Bedroom Camera",
-  "Backyard Patio Camera",
-];
-
 export default function DemoControlCenterPage() {
   const [humans, setHumans] = useState<HumanActor[]>([]);
   const [selectedHumanId, setSelectedHumanId] = useState<"resident" | "guest">(
@@ -115,9 +105,11 @@ export default function DemoControlCenterPage() {
   const [tasksData, setTasksData] = useState<TasksAndEventsResponse | null>(
     null,
   );
+  const [cameraFeeds, setCameraFeeds] = useState<string[]>(["TIAGo Camera"]);
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("day");
   const [activeCamera, setActiveCamera] = useState<string>("TIAGo Camera");
   const [statusToast, setStatusToast] = useState<string | null>(null);
+  const inFlightRef = useRef(false);
 
   const notify = (msg: string) => {
     setStatusToast(msg);
@@ -125,31 +117,36 @@ export default function DemoControlCenterPage() {
   };
 
   const fetchAll = useCallback(async () => {
+    if (inFlightRef.current) return;
+    if (typeof document !== "undefined" && document.hidden) return;
+    inFlightRef.current = true;
     try {
-      const [hList, oList, sList, rList, tData, summary] = await Promise.all([
-        smartHomeApi.getHumans(),
-        smartHomeApi.getObjects(),
-        smartHomeApi.getSensors(),
-        smartHomeApi.getRobots(),
-        smartHomeApi.getTasks(),
-        smartHomeApi.getSummary(),
-      ]);
-      setHumans(hList);
-      setObjects(oList);
-      setSensors(sList);
-      setRobot(rList[0] || null);
-      setTasksData(tData);
-      if (summary?.environment?.time_of_day) {
-        setTimeOfDay(summary.environment.time_of_day);
+      const state = await smartHomeApi.getConsolidatedState();
+      setHumans(state.humans || []);
+      setObjects(state.objects || []);
+      setSensors(state.sensors || []);
+      setRobot(state.robots?.[0] || null);
+      setTasksData(state.tasks || null);
+      if (Array.isArray(state.cameras) && state.cameras.length > 0) {
+        const names = state.cameras.map((c) => c.name);
+        const ordered = names.includes("TIAGo Camera")
+          ? ["TIAGo Camera", ...names.filter((n) => n !== "TIAGo Camera")]
+          : ["TIAGo Camera", ...names];
+        setCameraFeeds(ordered);
+      }
+      if (state.summary?.environment?.time_of_day) {
+        setTimeOfDay(state.summary.environment.time_of_day);
       }
     } catch {
       // Silent retry if hub is starting
+    } finally {
+      inFlightRef.current = false;
     }
   }, []);
 
   useEffect(() => {
     fetchAll();
-    const timer = setInterval(fetchAll, 1200);
+    const timer = setInterval(fetchAll, 2500);
     return () => clearInterval(timer);
   }, [fetchAll]);
 
@@ -157,14 +154,7 @@ export default function DemoControlCenterPage() {
     humans.find((h) => h.id === selectedHumanId) || humans[0] || null;
   const activeObjDetail =
     objects.find((o) => o.name === selectedObject) || objects[0] || null;
-  const availableSurfaces = activeObjDetail?.available_surfaces || [
-    { id: "kitchen_island", name: "Kitchen Island", room: "Kitchen", position: [-2.35, -2.4, 0.96] },
-    { id: "coffee_table", name: "Coffee Table", room: "Living Room", position: [-5.85, -2.65, 0.57] },
-    { id: "dining_table", name: "Dining Table", room: "Dining Room", position: [-10.1, -1.63, 0.76] },
-    { id: "study_desk", name: "Study Desk", room: "Study Bedroom", position: [-6.85, -12.2, 0.74] },
-    { id: "master_bed", name: "Master Bed", room: "Master Bedroom", position: [-2.4, -9.8, 0.58] },
-    { id: "foyer_bench", name: "Foyer Bench", room: "Foyer", position: [-2.7, -7.2, 0.45] },
-  ];
+  const availableSurfaces = activeObjDetail?.available_surfaces ?? [];
 
   // --- Handlers ---
 
@@ -651,7 +641,7 @@ export default function DemoControlCenterPage() {
                 onChange={(e) => setActiveCamera(e.target.value)}
                 className="h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-medium"
               >
-                {CAMERA_FEEDS.map((cam) => (
+                {cameraFeeds.map((cam) => (
                   <option key={cam} value={cam}>
                     {cam}
                   </option>

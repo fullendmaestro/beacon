@@ -9,7 +9,17 @@ import urllib.request
 from collections.abc import Generator
 from typing import Any
 
-from constants import APPLIANCE_DEFAULTS, NAV_NODES, SUPPORTED_LIGHT_TYPES
+from constants import (
+    APPLIANCE_DEFAULTS,
+    CAMERA_NAMES,
+    NAV_EDGES,
+    NAV_NODES,
+    OBJECT_DEF_MAP,
+    ROOM_ALIASES,
+    SUPPORTED_LIGHT_TYPES,
+    SURFACE_PRESETS,
+    TIAGO_API_URL,
+)
 try:
     from controller import Supervisor
 except ImportError:
@@ -273,9 +283,17 @@ class SmartHomeController:
         with self.state_lock:
             lights_on = sum(1 for l in self.lighting.light_states.values() if l["state"] == "On")
             doors_open = sum(1 for d in self.access.door_states.values() if d["state"] == "Open")
-            appliance_watts = sum(a["power_watts"] for a in self.climate_appliances.appliance_states.values())
-            light_watts = lights_on * 12.0
-            hvac_watts = sum(350.0 for c in self.climate_appliances.climate_states.values() if c["state"] == "On")
+            appliance_watts = sum(float(a["power_watts"]) for a in self.climate_appliances.appliance_states.values())
+            light_watts = sum(
+                12.0 * (max(1, int(l.get("brightness", 100))) / 100.0)
+                for l in self.lighting.light_states.values()
+                if l["state"] == "On"
+            )
+            hvac_watts = sum(
+                float(c.get("power_watts", 350.0))
+                for c in self.climate_appliances.climate_states.values()
+                if c["state"] == "On"
+            )
             pending_hitl = sum(1 for t in self.events_tasks.tasks if t["status"] == "pending_approval")
             return {
                 "lights_on": lights_on,
@@ -375,7 +393,7 @@ class SmartHomeController:
     def list_robots(self) -> list[dict[str, Any]]:
         tiago_direct = None
         try:
-            req = urllib.request.Request("http://127.0.0.1:8001/telemetry")
+            req = urllib.request.Request(f"{TIAGO_API_URL}/telemetry")
             with urllib.request.urlopen(req, timeout=0.3) as resp:
                 if resp.status == 200:
                     tiago_direct = json.loads(resp.read().decode("utf-8"))
@@ -384,6 +402,7 @@ class SmartHomeController:
 
         with self.state_lock:
             fb = self.tiago_fallback
+            foyer_pose = NAV_NODES["foyer"]["pose"]
             if tiago_direct:
                 pose = tiago_direct.get("pose", {})
                 x = pose.get("x", fb["pose"]["x"])
@@ -391,7 +410,7 @@ class SmartHomeController:
                 theta = pose.get("theta", fb["pose"]["theta"])
                 nearest_node, room_name = self._infer_nearest_node(x, y)
                 task = tiago_direct.get("task", "idle")
-                is_docked = nearest_node == "foyer" and math.hypot(x - (-3.10), y - (-7.62)) < 0.4
+                is_docked = nearest_node == "foyer" and math.hypot(x - foyer_pose[0], y - foyer_pose[1]) < 0.4
                 status = (
                     "Navigating"
                     if "navigat" in task.lower()
@@ -445,7 +464,7 @@ class SmartHomeController:
             if action == "navigate" and action_data.get("destination"):
                 payload = json.dumps({"room": action_data["destination"]}).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/navigate/room",
+                    f"{TIAGO_API_URL}/navigate/room",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -453,7 +472,7 @@ class SmartHomeController:
                     return json.loads(resp.read().decode("utf-8"))
             elif action == "stop":
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/stop",
+                    f"{TIAGO_API_URL}/stop",
                     data=b"{}",
                     headers={"Content-Type": "application/json"},
                 )
@@ -462,7 +481,7 @@ class SmartHomeController:
             elif action == "arm" and action_data.get("pose"):
                 payload = json.dumps({"pose": action_data["pose"]}).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/arm/pose",
+                    f"{TIAGO_API_URL}/arm/pose",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -471,7 +490,7 @@ class SmartHomeController:
             elif action == "gripper" and action_data.get("gripper_state"):
                 payload = json.dumps({"state": action_data["gripper_state"]}).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/gripper/set",
+                    f"{TIAGO_API_URL}/gripper/set",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -480,7 +499,7 @@ class SmartHomeController:
             elif action == "head" and action_data.get("target"):
                 payload = json.dumps({"target": action_data["target"]}).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/head/look_at",
+                    f"{TIAGO_API_URL}/head/look_at",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -489,7 +508,7 @@ class SmartHomeController:
             elif action == "pick" and action_data.get("object"):
                 payload = json.dumps({"object": action_data["object"]}).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/manipulate/pick",
+                    f"{TIAGO_API_URL}/manipulate/pick",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -498,7 +517,7 @@ class SmartHomeController:
             elif action == "place" and action_data.get("location"):
                 payload = json.dumps({"location": action_data["location"]}).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/manipulate/place",
+                    f"{TIAGO_API_URL}/manipulate/place",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -507,7 +526,7 @@ class SmartHomeController:
             elif action == "patrol":
                 payload = json.dumps({"rooms": action_data.get("rooms")}).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/errand/patrol",
+                    f"{TIAGO_API_URL}/errand/patrol",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -519,7 +538,7 @@ class SmartHomeController:
                     "from_location": action_data["from_location"],
                 }).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/errand/fetch",
+                    f"{TIAGO_API_URL}/errand/fetch",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -532,7 +551,7 @@ class SmartHomeController:
                     "to_location": action_data.get("to_location", "living_room"),
                 }).encode("utf-8")
                 req = urllib.request.Request(
-                    "http://127.0.0.1:8001/errand/deliver",
+                    f"{TIAGO_API_URL}/errand/deliver",
                     data=payload,
                     headers={"Content-Type": "application/json"},
                 )
@@ -634,12 +653,47 @@ class SmartHomeController:
                 })
         return {"success": True, "scene": scene}
 
+    def get_config(self) -> dict[str, Any]:
+        """Return shared topological, object, surface, and camera configuration."""
+        surfaces = [
+            {"id": k, "name": k.replace("_", " ").title(), "room": v[3], "position": [v[0], v[1], v[2]]}
+            for k, v in SURFACE_PRESETS.items()
+        ]
+        rooms = [
+            {"id": k, "label": str(v["name"]), "room": str(v["room"]), "pose": list(v["pose"])}
+            for k, v in NAV_NODES.items()
+            if not k.endswith("_junction") and k not in ("hallway", "kitchen_approach")
+        ]
+        return {
+            "nav_nodes": NAV_NODES,
+            "nav_edges": NAV_EDGES,
+            "room_aliases": ROOM_ALIASES,
+            "rooms": rooms,
+            "objects": OBJECT_DEF_MAP,
+            "surfaces": surfaces,
+            "cameras": [c["name"] for c in self.list_cameras()],
+        }
+
+    def get_consolidated_state(self) -> dict[str, Any]:
+        """Return consolidated state for the /demo control center in a single HTTP request."""
+        return {
+            "summary": self.get_summary(),
+            "humans": self.list_humans(),
+            "objects": self.list_objects(),
+            "sensors": self.list_sensors(),
+            "robots": self.list_robots(),
+            "tasks": self.get_tasks_and_events(),
+            "cameras": self.list_cameras(),
+        }
+
     # --- Main Webots Step Loop ---
 
     def step_simulation(self) -> None:
+        dt_sec = self.time_step / 1000.0
         with self.state_lock:
             self.perception.step_sensors_and_cameras()
-            self.humans.step_humans(self.time_step / 1000.0)
+            self.humans.step_humans(dt_sec)
+            self.climate_appliances.step_climate(dt_sec)
             self.events_tasks.step_events(
                 self.perception.sensor_states,
                 self.lighting,

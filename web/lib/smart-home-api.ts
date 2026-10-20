@@ -209,23 +209,58 @@ export interface SensorDevice {
   triggered: boolean;
 }
 
+export interface ConsolidatedSmartHomeState {
+  summary: HomeSummary;
+  humans: HumanActor[];
+  objects: HouseholdObject[];
+  sensors: SensorDevice[];
+  robots: RobotDevice[];
+  tasks: TasksAndEventsResponse;
+  cameras: CameraDevice[];
+}
+
+const inflightGetRequests = new Map<string, Promise<unknown>>();
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers || {}),
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`Smart Home API error (${res.status}): ${path}`);
+  const isGet = !options?.method || options.method.toUpperCase() === "GET";
+  if (isGet) {
+    const existing = inflightGetRequests.get(path);
+    if (existing) {
+      return existing as Promise<T>;
+    }
   }
-  return res.json() as Promise<T>;
+
+  const promise = (async () => {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options?.headers || {}),
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`Smart Home API error (${res.status}): ${path}`);
+    }
+    return res.json() as Promise<T>;
+  })();
+
+  if (isGet) {
+    inflightGetRequests.set(path, promise);
+    promise.finally(() => {
+      inflightGetRequests.delete(path);
+    });
+  }
+
+  return promise;
 }
 
 export const smartHomeApi = {
   getStreamUrl: (cameraName: string) =>
     `${BASE_URL}/api/cameras/${encodeURIComponent(cameraName)}/stream`,
+
+  getConfig: () => request<Record<string, unknown>>("/api/config"),
+
+  getConsolidatedState: () => request<ConsolidatedSmartHomeState>("/api/state"),
 
   getSummary: () => request<HomeSummary>("/api/home/summary"),
 

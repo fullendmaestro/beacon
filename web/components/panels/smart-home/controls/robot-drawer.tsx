@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Bot,
   Camera,
@@ -28,6 +28,7 @@ import {
   TIAGO_ROOMS,
   TIAGO_ARM_PRESETS,
   TIAGO_HEAD_TARGETS,
+  DEFAULT_HOUSEHOLD_OBJECTS,
 } from "../constants";
 import { smartHomeApi, type RobotDevice } from "@/lib/smart-home-api";
 
@@ -53,6 +54,25 @@ export function RobotDrawer({
   onSetHead,
 }: RobotDrawerProps) {
   const [activeActionMsg, setActiveActionMsg] = useState<string | null>(null);
+  const [objectNames, setObjectNames] = useState<string[]>(DEFAULT_HOUSEHOLD_OBJECTS);
+
+  useEffect(() => {
+    if (!robot) return;
+    let mounted = true;
+    smartHomeApi
+      .getObjects()
+      .then((objs) => {
+        if (mounted && Array.isArray(objs) && objs.length > 0) {
+          setObjectNames(objs.map((o) => o.name));
+        }
+      })
+      .catch(() => {
+        // Keep fallback catalogue of all 10 household objects
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [robot]);
 
   const showActionFeedback = (msg: string) => {
     setActiveActionMsg(msg);
@@ -324,7 +344,7 @@ export function RobotDrawer({
                     Supervisor Magnetic Grasp (Quick Pick)
                   </span>
                   <div className="flex flex-wrap gap-1.5">
-                    {["cup", "bottle", "medicine_box", "keys", "remote_control", "book"].map((obj) => (
+                    {objectNames.map((obj) => (
                       <Button
                         key={obj}
                         variant={robot.held_object === obj ? "default" : "outline"}
