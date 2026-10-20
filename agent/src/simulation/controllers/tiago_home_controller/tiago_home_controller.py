@@ -1,15 +1,17 @@
-"""TIAGo House-Errand Bot – Webots controller with Ground-Truth Pose & Door Auto-Clearance."""
+"""TIAGo House-Errand Bot – Webots controller with Supervisor Magnetic Grasp, Vision & Patrol."""
 
 from __future__ import annotations
 
+import base64
 import heapq
+import io
 import json
 import logging
 import math
 import threading
-import io
 import time
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Any
@@ -19,6 +21,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
+
 try:
     from PIL import Image
 except ImportError:
@@ -27,25 +30,20 @@ except ImportError:
 logger = logging.getLogger("tiago_home_controller")
 
 try:
-    from controller import Supervisor, Robot  # type: ignore
+    from controller import Robot, Supervisor  # type: ignore
+
     _WEBOTS = True
 except ImportError:
     _WEBOTS = False
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Constants & Beacon Home Manhattan Navigation Graph
-# ═══════════════════════════════════════════════════════════════════════════════
-
 PORT = 8001
 SMART_HOME_API = "http://127.0.0.1:8000"
-TIME_STEP = 16  # Matches beacon_home.wbt basicTimeStep
+TIME_STEP = 16
 
-WHEEL_RADIUS = 0.0985       # metres
-WHEEL_SEPARATION = 0.4044   # metres
-MAX_SPEED = 4.5             # rad/s
+WHEEL_RADIUS = 0.0985
+WHEEL_SEPARATION = 0.4044
+MAX_SPEED = 4.5
 
-# Exact orthogonal Manhattan navigation graph matching your red path in beacon_home_1.png.
-# Note: Corridor spine uses y = -7.62 to give extra clearance from the Corridor Radiator at y = -6.88.
 NAV_NODES: dict[str, dict[str, Any]] = {
     "front_door":        {"name": "Front Entrance",          "room": "Foyer",          "pose": (-0.91, -7.62,  0.0)},
     "master_junction":   {"name": "Master Bedroom Junction", "room": "Foyer",          "pose": (-2.15, -7.62, -1.5708)},
@@ -88,18 +86,37 @@ ROOM_ALIASES: dict[str, str] = {
     "bedroom": "master_bedroom",
 }
 
-ROOMS: dict[str, tuple[float, float, float]] = {
-    k: v["pose"] for k, v in NAV_NODES.items()
+ROOMS: dict[str, tuple[float, float, float]] = {k: v["pose"] for k, v in NAV_NODES.items()}
+
+OBJECT_DEFS: dict[str, str] = {
+    "cup": "OBJ_CUP",
+    "bottle": "OBJ_BOTTLE",
+    "medicine_box": "OBJ_MEDICINE_BOX",
+    "plate": "OBJ_PLATE",
+    "tray": "OBJ_TRAY",
+    "remote_control": "OBJ_REMOTE_CONTROL",
+    "keys": "OBJ_KEYS",
+    "book": "OBJ_BOOK",
+    "phone": "OBJ_PHONE",
+    "glasses": "OBJ_GLASSES",
 }
 
-OBJECTS: list[str] = [
-    "cup", "bottle", "plate", "book", "remote_control",
-    "medicine_box", "glasses", "phone", "keys", "tray",
-]
+OBJECTS: list[str] = list(OBJECT_DEFS.keys())
 
-# Joint order for TIAGo + Robotiq 2F-85:
-# [torso_lift_joint, arm_1_joint, arm_2_joint, arm_3_joint, arm_4_joint, arm_6_joint]
-# Validated against official tiago_robotiq_grippers.py joint limits (arm_3 min is -2.237).
+# Target surface coordinates when placing an item in a room
+ROOM_PLACE_SURFACES: dict[str, tuple[float, float, float]] = {
+    "kitchen":        (-2.35, -2.40, 0.96),
+    "living_room":    (-5.85, -2.65, 0.57),
+    "dining_room":    (-10.10, -1.63, 0.76),
+    "master_bedroom": (-2.40, -9.80, 0.58),
+    "bedroom":        (-2.40, -9.80, 0.58),
+    "study_bedroom":  (-6.85, -12.20, 0.74),
+    "bathroom":       (-5.35, -9.98, 1.08),
+    "foyer":          (-2.70, -7.20, 0.45),
+    "docking":        (-2.70, -7.20, 0.45),
+    "utility_room":   (-1.85, -5.63, 0.88),
+}
+
 ARM_PRESETS: dict[str, list[float]] = {
     "home":        [0.150,  0.07,   0.0,    -2.237,  1.403,  0.0],
     "carry":       [0.250,  0.07,   0.0,    -2.237,  1.403,  0.0],
@@ -151,18 +168,17 @@ def _simplify_collinear(nodes: list[str]) -> list[str]:
     return out
 
 
-def _fetch_smart_home_doors() -> list[dict[str, Any]]:
+def _fetch_smart_home_json(path: str) -> Any:
     try:
-        with urllib.request.urlopen(f"{SMART_HOME_API}/api/doors", timeout=0.6) as resp:
+        with urllib.request.urlopen(f"{SMART_HOME_API}{path}", timeout=0.6) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception:
-        return []
+        return None
 
 
 def _open_door_via_http(door_name: str) -> None:
-    """Ensure the Smart Home Hub API also marks the door open."""
     try:
-        doors = _fetch_smart_home_doors()
+        doors = _fetch_smart_home_json("/api/doors") or []
         for d in doors:
             if d.get("name") == door_name:
                 door_id = d["id"]
@@ -173,6 +189,24 @@ def _open_door_via_http(door_name: str) -> None:
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=0.6)
+    except Exception:
+        pass
+
+
+def _ensure_room_light_on(room_name: str) -> None:
+    """Turn on room light automatically before visual inspection if dark."""
+    try:
+        lights = _fetch_smart_home_json("/api/lights") or []
+        clean_room = room_name.replace("_", " ").lower()
+        for l in lights:
+            if clean_room in l.get("name", "").lower() and l.get("state") == "Off":
+                req = urllib.request.Request(
+                    f"{SMART_HOME_API}/api/lights/{l['id']}/state",
+                    data=json.dumps({"power_state": "on", "brightness": 85}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=0.5)
     except Exception:
         pass
 
@@ -218,7 +252,7 @@ def _compute_route(cx: float, cy: float, dest_raw: str) -> dict[str, Any]:
             yaw = round(def_yaw, 4)
         waypoints.append({"x": nx, "y": ny, "theta": yaw})
 
-    live_doors = _fetch_smart_home_doors()
+    live_doors = _fetch_smart_home_json("/api/doors") or []
     blocking_doors: list[dict[str, Any]] = []
     for d_name in doors_on_path:
         matched = next((d for d in live_doors if d.get("name") == d_name), None)
@@ -243,15 +277,12 @@ def _compute_route(cx: float, cy: float, dest_raw: str) -> dict[str, Any]:
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# State Machine & Robot Hardware Setup
-# ═══════════════════════════════════════════════════════════════════════════════
-
 class TaskState(Enum):
     IDLE = auto()
     NAVIGATING = auto()
     PICKING = auto()
     PLACING = auto()
+    PATROLLING = auto()
 
 
 @dataclass
@@ -267,14 +298,14 @@ class TiagoState:
     battery: float = 100.0
     waypoint_queue: list[tuple[float, float, float]] = field(default_factory=list)
     doors_to_clear: list[str] = field(default_factory=list)
-    nav_phase: str = "unstick"  # 'unstick' | 'rotate_to_goal' | 'drive' | 'final_align'
-    nav_start_sim_time: float = 0.0
+    nav_phase: str = "unstick"
     errand_id: str = ""
     errand_type: str = ""
     errand_current_step: int = 0
     errand_total_steps: int = 0
     errand_status: str = "idle"
     errand_message: str = ""
+    patrol_logs: list[dict[str, Any]] = field(default_factory=list)
 
 
 _state = TiagoState()
@@ -300,6 +331,8 @@ class _StubCamera:
 _avail_devices: dict[str, Any] = {}
 _self_node: Any = None
 _door_nodes_by_name: dict[str, tuple[Any, float]] = {}
+_object_nodes_by_name: dict[str, Any] = {}
+_human_nodes: dict[str, Any] = {}
 
 
 def _dev(name: str) -> Any:
@@ -320,7 +353,6 @@ if _WEBOTS:
         if d is not None:
             _avail_devices[d.getName()] = d
 
-    # Discover Supervisor self node and Door nodes for ground-truth pose & direct door opening
     if hasattr(robot, "getSelf"):
         try:
             _self_node = robot.getSelf()
@@ -336,6 +368,14 @@ if _WEBOTS:
                             dname = nf.getSFString()
                             base_z = tf.getSFVec3f()[2]
                             _door_nodes_by_name[dname] = (n, base_z)
+            for obj_name, def_name in OBJECT_DEFS.items():
+                obj_node = robot.getFromDef(def_name)
+                if obj_node:
+                    _object_nodes_by_name[obj_name] = obj_node
+            for h_def in ("RESIDENT_HUMAN", "GUEST_HUMAN"):
+                h_node = robot.getFromDef(h_def)
+                if h_node:
+                    _human_nodes[h_def] = h_node
         except Exception:
             _self_node = None
 
@@ -354,7 +394,6 @@ if _WEBOTS:
     _camera = _dev("Astra rgb") or _StubCamera()
     _camera.enable(max(time_step * 8, 128))
 
-    # Exact 6 arm joints for TIAGo + Robotiq 2F-85 (from official tiago_robotiq_grippers.py)
     _arm_joint_names = [
         "torso_lift_joint",
         "arm_1_joint",
@@ -365,7 +404,6 @@ if _WEBOTS:
     ]
     _arm_joints = [_dev(n) or _StubMotor() for n in _arm_joint_names]
 
-    # Immediately fold the arm out of the radiator using valid joint limits
     for j, target_angle in zip(_arm_joints, ARM_PRESETS["home"]):
         j.setPosition(target_angle)
 
@@ -414,10 +452,10 @@ def _apply_gripper(state: str) -> None:
 
 _HEAD_TARGETS: dict[str, tuple[float, float]] = {
     "forward": (0.0, 0.0),
-    "left":    (0.5, 0.0),
-    "right":  (-0.5, 0.0),
-    "up":      (0.0, -0.4),
-    "down":    (0.0, 0.4),
+    "left":    (0.55, 0.0),
+    "right":  (-0.55, 0.0),
+    "up":      (0.0, -0.35),
+    "down":    (0.0, 0.42),
 }
 
 
@@ -429,7 +467,6 @@ def _apply_head(target: str) -> bool:
 
 
 def _ensure_webots_door_open(door_name: str) -> None:
-    """Directly raise any blocking interior door in the Webots scene tree."""
     if door_name in _door_nodes_by_name:
         node, base_z = _door_nodes_by_name[door_name]
         tf = node.getField("translation")
@@ -441,12 +478,62 @@ def _ensure_webots_door_open(door_name: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Ground-Truth Pose & Orthogonal Waypoint Follower (Runs in Main Webots Thread)
+# Supervisor-Assisted Magnetic Grasp Kinematic Attachment
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_odom_left_prev: float = 0.0
-_odom_right_prev: float = 0.0
-_odom_initialized: bool = False
+def _update_magnetic_grasp() -> None:
+    """Keep the currently held object magnetically locked to TIAGo's Robotiq 2F-85 gripper."""
+    if not _WEBOTS:
+        return
+    with _state_lock:
+        held = _state.held_object
+        rx, ry, rtheta = _state.x, _state.y, _state.theta
+        arm_pose = _state.arm_pose_name
+
+    if not held or held not in _object_nodes_by_name:
+        return
+
+    obj_node = _object_nodes_by_name[held]
+    tf = obj_node.getField("translation")
+    if not tf:
+        return
+
+    # Compute gripper attachment offset in front of TIAGo's torso based on arm pose
+    if arm_pose == "reach_table":
+        forward_dist = 0.68
+        z_height = 0.88
+    elif arm_pose == "handover":
+        forward_dist = 0.64
+        z_height = 1.05
+    elif arm_pose == "reach_floor":
+        forward_dist = 0.55
+        z_height = 0.35
+    else:  # carry / home
+        forward_dist = 0.46
+        z_height = 0.96
+
+    gx = rx + forward_dist * math.cos(rtheta)
+    gy = ry + forward_dist * math.sin(rtheta)
+    tf.setSFVec3f([gx, gy, z_height])
+
+
+def _place_object_on_surface_node(obj_name: str, location_key: str) -> None:
+    """Place a 3D object onto the designated surface in the target room."""
+    if not _WEBOTS or obj_name not in _object_nodes_by_name:
+        return
+    obj_node = _object_nodes_by_name[obj_name]
+    tf = obj_node.getField("translation")
+    if not tf:
+        return
+    norm_loc = ROOM_ALIASES.get(location_key.lower().strip(), location_key.lower().strip())
+    if norm_loc in ROOM_PLACE_SURFACES:
+        sx, sy, sz = ROOM_PLACE_SURFACES[norm_loc]
+    else:
+        with _state_lock:
+            sx = _state.x + 0.58 * math.cos(_state.theta)
+            sy = _state.y + 0.58 * math.sin(_state.theta)
+            sz = 0.78
+    tf.setSFVec3f([sx, sy, sz])
 
 
 def _norm_angle(a: float) -> float:
@@ -454,58 +541,28 @@ def _norm_angle(a: float) -> float:
 
 
 def _update_pose() -> None:
-    """Update _state (x, y, theta) from Webots Supervisor ground-truth (or wheel odometry fallback)."""
-    global _odom_left_prev, _odom_right_prev, _odom_initialized
-    if not _WEBOTS:
+    if not _WEBOTS or _self_node is None:
         return
-
-    # 1. Preferred: Exact 3D ground-truth pose from Webots Supervisor
-    if _self_node is not None:
-        try:
-            pos = _self_node.getPosition()
-            rot = _self_node.getOrientation()  # 3x3 row-major rotation matrix
-            yaw = math.atan2(rot[3], rot[0])
-            with _state_lock:
-                _state.x = float(pos[0])
-                _state.y = float(pos[1])
-                _state.theta = _norm_angle(yaw)
-            return
-        except Exception:
-            pass
-
-    # 2. Fallback: Wheel encoders
-    left_pos = _left_enc.getValue()
-    right_pos = _right_enc.getValue()
-    if math.isnan(left_pos) or math.isnan(right_pos):
-        return
-    if not _odom_initialized:
-        _odom_left_prev = left_pos
-        _odom_right_prev = right_pos
-        _odom_initialized = True
-        return
-
-    dl = (left_pos - _odom_left_prev) * WHEEL_RADIUS
-    dr = (right_pos - _odom_right_prev) * WHEEL_RADIUS
-    _odom_left_prev = left_pos
-    _odom_right_prev = right_pos
-    dc = (dl + dr) / 2.0
-    dtheta = (dr - dl) / WHEEL_SEPARATION
-
-    with _state_lock:
-        _state.theta = _norm_angle(_state.theta + dtheta)
-        _state.x += dc * math.cos(_state.theta)
-        _state.y += dc * math.sin(_state.theta)
+    try:
+        pos = _self_node.getPosition()
+        rot = _self_node.getOrientation()
+        yaw = math.atan2(rot[3], rot[0])
+        with _state_lock:
+            _state.x = float(pos[0])
+            _state.y = float(pos[1])
+            _state.theta = _norm_angle(yaw)
+    except Exception:
+        pass
 
 
 def _step_navigation() -> None:
-    """Executed exclusively inside the main Webots step loop."""
     if not _WEBOTS or robot is None:
         return
 
     _update_pose()
+    _update_magnetic_grasp()
     sim_now = robot.getTime()
 
-    # Wait 1.2s at simulation start so the arm finishes folding out of the radiator
     if sim_now < 1.2:
         _set_wheel_speeds(0.0, 0.0)
         return
@@ -514,7 +571,6 @@ def _step_navigation() -> None:
         if _state.task != TaskState.NAVIGATING or not _state.waypoint_queue:
             return
 
-        # Guarantee any doors along the active route are physically open in Webots
         for d_name in _state.doors_to_clear:
             _ensure_webots_door_open(d_name)
 
@@ -525,7 +581,6 @@ def _step_navigation() -> None:
         desired_heading = math.atan2(dy, dx)
         heading_err = _norm_angle(desired_heading - _state.theta)
 
-        # Phase 0: Back up slightly (0.14m toward -Y) if spawned too close to the north corridor radiator
         if _state.nav_phase == "unstick":
             if _state.y > -7.58 and abs(_norm_angle(_state.theta - 1.5708)) < 0.6:
                 _set_wheel_speeds(-2.0, -2.0)
@@ -533,13 +588,10 @@ def _step_navigation() -> None:
             _set_wheel_speeds(0.0, 0.0)
             _state.nav_phase = "rotate_to_goal"
 
-        # Phase 1: Rotate in place toward next Manhattan waypoint
         if _state.nav_phase == "rotate_to_goal":
             if dist < 0.10:
                 _state.nav_phase = "final_align"
             elif abs(heading_err) > 0.05:
-                # If facing +Y (1.57 rad) in the corridor and turning toward -X (pi rad),
-                # rotate CLOCKWISE (ang < 0) if near the north wall so the right arm swings into open space.
                 ang = max(-2.0, min(2.0, heading_err * 3.2))
                 if abs(heading_err) < 0.25:
                     ang = math.copysign(max(0.35, abs(ang)), heading_err)
@@ -549,7 +601,6 @@ def _step_navigation() -> None:
                 _set_wheel_speeds(0.0, 0.0)
                 _state.nav_phase = "drive"
 
-        # Phase 2: Drive straight along orthogonal corridor segment
         if _state.nav_phase == "drive":
             if dist < 0.10:
                 _set_wheel_speeds(0.0, 0.0)
@@ -564,7 +615,6 @@ def _step_navigation() -> None:
                 _set_wheel_speeds(lin - ang, lin + ang)
                 return
 
-        # Phase 3: Advance to next corner or align final heading
         if _state.nav_phase == "final_align":
             if len(_state.waypoint_queue) > 1:
                 _state.waypoint_queue.pop(0)
@@ -591,16 +641,11 @@ def _wait_for_nav_complete(timeout: float = 90.0) -> None:
         time.sleep(0.1)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Errand Runners
-# ═══════════════════════════════════════════════════════════════════════════════
-
 def _enqueue_room_nav(room: str) -> dict[str, Any]:
     _update_pose()
     with _state_lock:
         cx, cy = _state.x, _state.y
     plan = _compute_route(cx, cy, room)
-    # Also notify Smart Home HTTP server to open any doors on path
     for d_name in plan.get("doors_on_path", []):
         _open_door_via_http(d_name)
 
@@ -622,15 +667,23 @@ def _nav_to_room_sync(room: str) -> None:
 def _pick_sync(obj: str) -> None:
     with _state_lock:
         _state.task = TaskState.PICKING
-        _state.task_description = f"picking {obj}"
+        _state.task_description = f"magnetic grasping {obj}"
+        _state.arm_pose_name = "reach_table"
+    _apply_head("down")
+    _apply_gripper("open")
     _apply_arm_preset("reach_table")
-    time.sleep(1.5)
-    _apply_gripper("closed")
-    time.sleep(0.8)
-    _apply_arm_preset("carry")
+    time.sleep(1.1)
+
+    # Magnetically snap object into gripper jaws
     with _state_lock:
-        _state.gripper_state = "closed"
         _state.held_object = obj
+        _state.gripper_state = "closed"
+    _apply_gripper("closed")
+    time.sleep(0.6)
+
+    _apply_arm_preset("carry")
+    _apply_head("forward")
+    with _state_lock:
         _state.arm_pose_name = "carry"
         _state.task = TaskState.IDLE
         _state.task_description = "idle"
@@ -638,19 +691,77 @@ def _pick_sync(obj: str) -> None:
 
 def _place_sync(location: str) -> None:
     with _state_lock:
+        held = _state.held_object
         _state.task = TaskState.PLACING
-        _state.task_description = f"placing at {location}"
+        _state.task_description = f"placing {held or 'item'} at {location}"
+        _state.arm_pose_name = "reach_table"
+    _apply_head("down")
     _apply_arm_preset("reach_table")
-    time.sleep(1.2)
+    time.sleep(1.0)
+
     _apply_gripper("open")
-    time.sleep(0.6)
-    _apply_arm_preset("home")
+    if held:
+        _place_object_on_surface_node(held, location)
+
     with _state_lock:
         _state.gripper_state = "open"
         _state.held_object = ""
+    time.sleep(0.5)
+
+    _apply_arm_preset("home")
+    _apply_head("forward")
+    with _state_lock:
         _state.arm_pose_name = "home"
         _state.task = TaskState.IDLE
         _state.task_description = "idle"
+
+
+def _get_scene_detections_near(rx: float, ry: float, radius: float = 4.2) -> dict[str, Any]:
+    """Inspect nearby 3D objects and humans around TIAGo's current position."""
+    nearby_objects: list[dict[str, Any]] = []
+    for name, node in _object_nodes_by_name.items():
+        tf = node.getField("translation")
+        if tf:
+            pos = tf.getSFVec3f()
+            dist = math.hypot(pos[0] - rx, pos[1] - ry)
+            if dist <= radius:
+                nearby_objects.append({
+                    "object": name,
+                    "distance_m": round(dist, 2),
+                    "position": [round(pos[0], 2), round(pos[1], 2), round(pos[2], 2)],
+                })
+
+    nearby_humans: list[dict[str, Any]] = []
+    for h_def, node in _human_nodes.items():
+        tf = node.getField("translation")
+        nf = node.getField("name")
+        if tf:
+            pos = tf.getSFVec3f()
+            dist = math.hypot(pos[0] - rx, pos[1] - ry)
+            if dist <= radius:
+                nearby_humans.append({
+                    "id": h_def.lower(),
+                    "name": nf.getSFString() if nf else h_def,
+                    "distance_m": round(dist, 2),
+                    "position": [round(pos[0], 2), round(pos[1], 2)],
+                })
+
+    return {"nearby_objects": nearby_objects, "nearby_humans": nearby_humans}
+
+
+def _capture_jpeg_bytes(quality: int = 75) -> bytes | None:
+    try:
+        w = _camera.getWidth() if hasattr(_camera, "getWidth") else 640
+        h = _camera.getHeight() if hasattr(_camera, "getHeight") else 480
+        raw = _camera.getImage() if hasattr(_camera, "getImage") else None
+        if raw and Image is not None:
+            img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=quality)
+            return buf.getvalue()
+    except Exception:
+        pass
+    return None
 
 
 def _run_steps(steps: list[tuple[str, Any]]) -> None:
@@ -674,7 +785,6 @@ def _run_steps(steps: list[tuple[str, Any]]) -> None:
 
 
 def _run_fetch(item: str, from_location: str) -> None:
-    import uuid
     with _state_lock:
         _state.errand_id = str(uuid.uuid4())[:8]
         _state.errand_type = "fetch"
@@ -684,15 +794,14 @@ def _run_fetch(item: str, from_location: str) -> None:
         _state.errand_message = f"Fetching {item} from {from_location}"
     steps = [
         (f"Navigating to {from_location}", lambda: _nav_to_room_sync(from_location)),
-        (f"Picking {item}", lambda: _pick_sync(item)),
-        ("Returning to docking station", lambda: _nav_to_room_sync("docking")),
+        (f"Magnetic grasping {item}", lambda: _pick_sync(item)),
+        ("Returning to foyer dock", lambda: _nav_to_room_sync("docking")),
         ("Errand complete", lambda: None),
     ]
     _run_steps(steps)
 
 
 def _run_deliver(item: str, from_location: str, to_location: str) -> None:
-    import uuid
     with _state_lock:
         _state.errand_id = str(uuid.uuid4())[:8]
         _state.errand_type = "deliver"
@@ -702,11 +811,46 @@ def _run_deliver(item: str, from_location: str, to_location: str) -> None:
         _state.errand_message = f"Delivering {item} from {from_location} to {to_location}"
     steps = [
         (f"Navigating to {from_location}", lambda: _nav_to_room_sync(from_location)),
-        (f"Picking {item}", lambda: _pick_sync(item)),
+        (f"Magnetic grasping {item}", lambda: _pick_sync(item)),
         (f"Navigating to {to_location}", lambda: _nav_to_room_sync(to_location)),
-        (f"Placing {item}", lambda: _place_sync(to_location)),
+        (f"Placing {item} at {to_location}", lambda: _place_sync(to_location)),
         ("Errand complete", lambda: None),
     ]
+    _run_steps(steps)
+
+
+def _run_patrol(rooms: list[str]) -> None:
+    with _state_lock:
+        _state.errand_id = str(uuid.uuid4())[:8]
+        _state.errand_type = "patrol"
+        _state.errand_total_steps = len(rooms) + 1
+        _state.errand_current_step = 0
+        _state.errand_status = "running"
+        _state.errand_message = f"Starting security patrol across {len(rooms)} zones"
+        _state.patrol_logs.clear()
+
+    steps: list[tuple[str, Any]] = []
+    for rm in rooms:
+        def _inspect_zone(target_room: str = rm) -> None:
+            _ensure_room_light_on(target_room)
+            _nav_to_room_sync(target_room)
+            for direction in ("left", "right", "down", "forward"):
+                _apply_head(direction)
+                time.sleep(0.35)
+            with _state_lock:
+                rx, ry = _state.x, _state.y
+            det = _get_scene_detections_near(rx, ry, radius=4.5)
+            with _state_lock:
+                _state.patrol_logs.append({
+                    "room": target_room,
+                    "timestamp": time.strftime("%H:%M:%S"),
+                    "objects_seen": [o["object"] for o in det["nearby_objects"]],
+                    "humans_seen": [h["name"] for h in det["nearby_humans"]],
+                })
+
+        steps.append((f"Patrolling & scanning {rm}", _inspect_zone))
+
+    steps.append(("Returning to foyer dock", lambda: _nav_to_room_sync("foyer")))
     _run_steps(steps)
 
 
@@ -714,7 +858,7 @@ def _run_deliver(item: str, from_location: str, to_location: str) -> None:
 # FastAPI App
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title="TIAGo House-Errand Bot API", version="1.2.0")
+app = FastAPI(title="TIAGo House-Errand Bot API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -758,17 +902,30 @@ class DeliverRequest(BaseModel):
     from_location: str
     to_location: str
 
+class PatrolRequest(BaseModel):
+    rooms: list[str] | None = None
+
+class VisionInspectRequest(BaseModel):
+    query: str = "Describe what is visible in the room, including any objects, appliances, or people."
+    room: str | None = None
+    sweep: bool = True
+
 
 @app.get("/telemetry")
 def telemetry() -> JSONResponse:
     with _state_lock:
+        nearest = _nearest_node(_state.x, _state.y)
+        room_label = _GRAPH_NODES.get(nearest, {}).get("room", "Foyer")
         return JSONResponse({
             "pose": {"x": round(_state.x, 3), "y": round(_state.y, 3), "theta": round(_state.theta, 3)},
+            "current_node": nearest,
+            "current_room": room_label,
             "battery": round(_state.battery, 1),
             "gripper": _state.gripper_state,
             "arm_pose": _state.arm_pose_name,
             "task": _state.task_description,
             "held_object": _state.held_object,
+            "patrol_logs": list(_state.patrol_logs),
         })
 
 
@@ -834,6 +991,10 @@ def gripper_set(req: GripperRequest) -> JSONResponse:
     _apply_gripper(req.state)
     with _state_lock:
         _state.gripper_state = req.state
+        if req.state == "open" and _state.held_object:
+            nearest = _nearest_node(_state.x, _state.y)
+            _place_object_on_surface_node(_state.held_object, nearest)
+            _state.held_object = ""
     return JSONResponse({"status": "ok", "gripper": req.state})
 
 
@@ -842,7 +1003,7 @@ def manipulate_pick(req: PickRequest) -> JSONResponse:
     if req.object not in OBJECTS:
         raise HTTPException(status_code=404, detail=f"Object '{req.object}' not in known objects catalogue.")
     threading.Thread(target=_pick_sync, args=(req.object,), daemon=True, name="tiago-pick").start()
-    return JSONResponse({"status": "picking", "object": req.object})
+    return JSONResponse({"status": "picking", "object": req.object, "mode": "supervisor_magnetic_grasp"})
 
 
 @app.post("/manipulate/place")
@@ -862,50 +1023,99 @@ def head_look_at(req: LookAtRequest) -> JSONResponse:
 
 @app.get("/camera/snapshot")
 def camera_snapshot() -> JSONResponse:
-    import uuid
     snap_path = f"/tmp/tiago_snap_{uuid.uuid4().hex[:8]}.jpg"
     try:
         _camera.saveImage(snap_path, 90)
     except Exception:
         snap_path = ""
-    return JSONResponse({"status": "ok", "image_path": snap_path, "width": 640, "height": 480})
+    jpg = _capture_jpeg_bytes(quality=80)
+    b64 = base64.b64encode(jpg).decode("ascii") if jpg else ""
+    with _state_lock:
+        rx, ry = _state.x, _state.y
+    det = _get_scene_detections_near(rx, ry)
+    return JSONResponse({
+        "status": "ok",
+        "image_path": snap_path,
+        "width": 640,
+        "height": 480,
+        "base64_jpeg": b64,
+        **det,
+    })
+
+
+@app.get("/camera/frame_base64")
+def camera_frame_base64() -> JSONResponse:
+    jpg = _capture_jpeg_bytes(quality=80)
+    b64 = base64.b64encode(jpg).decode("ascii") if jpg else ""
+    with _state_lock:
+        rx, ry = _state.x, _state.y
+    det = _get_scene_detections_near(rx, ry)
+    return JSONResponse({
+        "status": "ok",
+        "width": 640,
+        "height": 480,
+        "base64_jpeg": b64,
+        **det,
+    })
+
+
+@app.post("/vision/inspect")
+def vision_inspect(req: VisionInspectRequest) -> JSONResponse:
+    """Navigate (optional), ensure room lights on, pan/tilt head camera, and capture visual + scene telemetry."""
+    if req.room:
+        if req.room not in ROOMS:
+            raise HTTPException(status_code=404, detail=f"Unknown room: {req.room}")
+        _ensure_room_light_on(req.room)
+        _nav_to_room_sync(req.room)
+    else:
+        with _state_lock:
+            cur_node = _nearest_node(_state.x, _state.y)
+        _ensure_room_light_on(cur_node)
+
+    if req.sweep:
+        for t in ("left", "right", "down", "forward"):
+            _apply_head(t)
+            time.sleep(0.25)
+
+    jpg = _capture_jpeg_bytes(quality=80)
+    b64 = base64.b64encode(jpg).decode("ascii") if jpg else ""
+    with _state_lock:
+        rx, ry, rtheta = _state.x, _state.y, _state.theta
+        held = _state.held_object
+        cur_node = _nearest_node(rx, ry)
+        cur_room = _GRAPH_NODES.get(cur_node, {}).get("room", "Foyer")
+
+    det = _get_scene_detections_near(rx, ry, radius=4.5)
+    return JSONResponse({
+        "status": "ok",
+        "query": req.query,
+        "room": cur_room,
+        "node": cur_node,
+        "pose": {"x": round(rx, 2), "y": round(ry, 2), "theta": round(rtheta, 2)},
+        "held_object": held,
+        "nearby_objects": det["nearby_objects"],
+        "nearby_humans": det["nearby_humans"],
+        "base64_jpeg": b64,
+    })
 
 
 @app.get("/camera/frame")
 def camera_frame() -> Response:
-    try:
-        w = _camera.getWidth() if hasattr(_camera, "getWidth") else 640
-        h = _camera.getHeight() if hasattr(_camera, "getHeight") else 480
-        raw = _camera.getImage() if hasattr(_camera, "getImage") else None
-        if raw and Image is not None:
-            img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
-            buf = io.BytesIO()
-            img.convert("RGB").save(buf, format="JPEG", quality=75)
-            return Response(content=buf.getvalue(), media_type="image/jpeg")
-    except Exception:
-        pass
+    jpg = _capture_jpeg_bytes(quality=75)
+    if jpg:
+        return Response(content=jpg, media_type="image/jpeg")
     return Response(status_code=503)
 
 
 @app.get("/camera/stream")
 def camera_stream() -> StreamingResponse:
     def gen():
-        w = _camera.getWidth() if hasattr(_camera, "getWidth") else 640
-        h = _camera.getHeight() if hasattr(_camera, "getHeight") else 480
         while True:
-            try:
-                raw = _camera.getImage() if hasattr(_camera, "getImage") else None
-                if raw and Image is not None:
-                    img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
-                    buf = io.BytesIO()
-                    img.convert("RGB").save(buf, format="JPEG", quality=60)
-                    yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n\r\n" + buf.getvalue() + b"\r\n"
-                    )
-            except Exception:
-                pass
+            jpg = _capture_jpeg_bytes(quality=60)
+            if jpg:
+                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n"
             time.sleep(0.08)
+
     return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
@@ -916,7 +1126,15 @@ def rooms() -> JSONResponse:
 
 @app.get("/objects")
 def objects() -> JSONResponse:
-    return JSONResponse({"objects": OBJECTS})
+    out: list[dict[str, Any]] = []
+    for name in OBJECTS:
+        pos = None
+        if name in _object_nodes_by_name:
+            tf = _object_nodes_by_name[name].getField("translation")
+            if tf:
+                pos = [round(v, 3) for v in tf.getSFVec3f()]
+        out.append({"name": name, "position": pos})
+    return JSONResponse({"objects": OBJECTS, "details": out})
 
 
 @app.post("/errand/fetch")
@@ -924,9 +1142,7 @@ def errand_fetch(req: FetchRequest) -> JSONResponse:
     with _state_lock:
         if _state.errand_status == "running":
             return JSONResponse({"status": "busy", "message": "An errand is already running."})
-    threading.Thread(
-        target=_run_fetch, args=(req.item, req.from_location), daemon=True, name="tiago-errand"
-    ).start()
+    threading.Thread(target=_run_fetch, args=(req.item, req.from_location), daemon=True, name="tiago-errand").start()
     return JSONResponse({"status": "started", "errand": "fetch", "item": req.item, "from": req.from_location})
 
 
@@ -941,6 +1157,16 @@ def errand_deliver(req: DeliverRequest) -> JSONResponse:
     return JSONResponse({"status": "started", "errand": "deliver", "item": req.item})
 
 
+@app.post("/errand/patrol")
+def errand_patrol(req: PatrolRequest) -> JSONResponse:
+    with _state_lock:
+        if _state.errand_status == "running":
+            return JSONResponse({"status": "busy", "message": "An errand is already running."})
+    target_rooms = req.rooms or ["living_room", "dining_room", "kitchen", "master_bedroom", "study_bedroom"]
+    threading.Thread(target=_run_patrol, args=(target_rooms,), daemon=True, name="tiago-patrol").start()
+    return JSONResponse({"status": "started", "errand": "patrol", "rooms": target_rooms})
+
+
 @app.get("/errand/status")
 def errand_status() -> JSONResponse:
     with _state_lock:
@@ -951,6 +1177,8 @@ def errand_status() -> JSONResponse:
             "total_steps": _state.errand_total_steps,
             "status": _state.errand_status,
             "message": _state.errand_message,
+            "held_object": _state.held_object,
+            "patrol_logs": list(_state.patrol_logs),
         })
 
 

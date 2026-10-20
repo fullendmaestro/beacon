@@ -9,7 +9,7 @@ import urllib.request
 from collections.abc import Generator
 from typing import Any
 
-from constants import APPLIANCE_DEFAULTS, SUPPORTED_LIGHT_TYPES
+from constants import APPLIANCE_DEFAULTS, NAV_NODES, SUPPORTED_LIGHT_TYPES
 try:
     from controller import Supervisor
 except ImportError:
@@ -18,10 +18,10 @@ from fastapi import HTTPException
 from managers import (
     AccessManager,
     ClimateApplianceManager,
-    DemoRecorderManager,
+    EventTaskManager,
+    HumanManager,
     LightingManager,
     PerceptionManager,
-    RoverManager,
 )
 
 logger = logging.getLogger("smart_home_controller")
@@ -34,7 +34,8 @@ class SmartHomeController:
       - AccessManager (doors, locks, garage door, driveway gate, motorized blinds)
       - ClimateApplianceManager (HVAC radiators, smart appliances, wall plugs, sun/sky)
       - PerceptionManager (security cameras, MJPEG streams, motion & daylight sensors)
-      - RoverManager (KUKA youBot autonomous navigation, 5-DOF arm, gripper, telemetry)
+      - HumanManager (Pedestrian human actors with 13-joint walking gait)
+      - EventTaskManager (Graspable 3D household objects, sensor edge triggers, Ambient & HITL AI tasks)
     """
 
     def __init__(self, supervisor: Any | None = None) -> None:
@@ -59,9 +60,22 @@ class SmartHomeController:
         self.access = AccessManager()
         self.climate_appliances = ClimateApplianceManager()
         self.perception = PerceptionManager()
-        self.rover = RoverManager()
-
-        self.demo = DemoRecorderManager()
+        self.humans = HumanManager()
+        self.events_tasks = EventTaskManager()
+        self.tiago_node: Any = None
+        self.tiago_fallback: dict[str, Any] = {
+            "status": "Docked",
+            "current_room": "Foyer",
+            "current_node": "foyer",
+            "target_destination": None,
+            "battery_pct": 98,
+            "pose": {"x": -3.10, "y": -7.50, "theta": 1.5708},
+            "arm_pose": "home",
+            "gripper": "open",
+            "held_object": "",
+            "task_description": "idle",
+            "patrol_logs": [],
+        }
 
     def _scan_root_children(self) -> list[Any]:
         nodes: list[Any] = []
@@ -81,6 +95,7 @@ class SmartHomeController:
         """Scan Webots scene tree and initialize all domain managers."""
         root_nodes = self._scan_root_children()
         self.climate_appliances.sun_node = self.supervisor.getFromDef("SUN_LIGHT")
+        self.tiago_node = self.supervisor.getFromDef("BEACON_TIAGO")
 
         with self.state_lock:
             for node in root_nodes:
@@ -100,14 +115,13 @@ class SmartHomeController:
 
             self.climate_appliances.ensure_all_default_appliances()
             self.access.init_def_barriers_and_blinds(self.supervisor)
-            self.rover.init_devices(self.supervisor)
-
-            self.demo.init_devices(self.supervisor, root_nodes)
+            self.humans.init_devices(self.supervisor)
+            self.events_tasks.init_devices(self.supervisor)
 
         self.perception.init_devices(self.supervisor, self.time_step)
 
         logger.info(
-            "Initialized %d lights, %d doors/gates, %d blinds, %d HVAC zones, %d appliances, %d cameras, %d sensors, and Rover=%s.",
+            "Initialized %d lights, %d doors/gates, %d blinds, %d HVAC zones, %d appliances, %d cameras, %d sensors, %d humans, %d objects, TIAGo=%s.",
             len(self.lighting.light_nodes),
             len(self.access.door_nodes),
             len(self.access.blind_nodes),
@@ -115,7 +129,9 @@ class SmartHomeController:
             len(self.climate_appliances.appliance_states),
             len(self.perception.cameras),
             len(self.perception.sensor_states),
-            bool(self.rover.rover_node),
+            len(self.humans.human_nodes),
+            len(self.events_tasks.object_nodes),
+            bool(self.tiago_node),
         )
 
     def dispatch_command(self, cmd: dict[str, Any], timeout: float = 2.0) -> dict[str, Any]:
@@ -126,6 +142,20 @@ class SmartHomeController:
         self.command_queue.put(cmd)
         completion.wait(timeout=timeout)
         return response_holder.get("result", {"status": "command_queued"})
+
+    @staticmethod
+    def _infer_nearest_node(x: float, y: float) -> tuple[str, str]:
+        best_key = "foyer"
+        best_room = "Foyer"
+        best_d = float("inf")
+        for k, cfg in NAV_NODES.items():
+            px, py, _ = cfg["pose"]
+            d = math.hypot(x - px, y - py)
+            if d < best_d:
+                best_d = d
+                best_key = k
+                best_room = str(cfg["room"])
+        return best_key, best_room
 
     # --- Lights Facade ---
 
@@ -238,12 +268,15 @@ class SmartHomeController:
         return self.perception.stream_camera(name)
 
     def get_summary(self) -> dict[str, Any]:
+        robots = self.list_robots()
+        tiago_info = robots[0] if robots else self.tiago_fallback
         with self.state_lock:
             lights_on = sum(1 for l in self.lighting.light_states.values() if l["state"] == "On")
             doors_open = sum(1 for d in self.access.door_states.values() if d["state"] == "Open")
             appliance_watts = sum(a["power_watts"] for a in self.climate_appliances.appliance_states.values())
             light_watts = lights_on * 12.0
             hvac_watts = sum(350.0 for c in self.climate_appliances.climate_states.values() if c["state"] == "On")
+            pending_hitl = sum(1 for t in self.events_tasks.tasks if t["status"] == "pending_approval")
             return {
                 "lights_on": lights_on,
                 "total_lights": len(self.lighting.light_states),
@@ -254,18 +287,15 @@ class SmartHomeController:
                 "cameras_online": len(self.perception.list_cameras()),
                 "estimated_power_watts": round(appliance_watts + light_watts + hvac_watts, 1),
                 "environment": dict(self.climate_appliances.environment_state),
-                "rover": {
-                    "status": self.rover.rover_state["status"],
-                    "current_room": self.rover.rover_state["current_room"],
-                    "target_destination": self.rover.rover_state["target_destination"],
-                },
+                "pending_tasks": pending_hitl,
                 "robot": {
                     "id": "tiago",
                     "name": "TIAGo",
-                    "status": self.rover.rover_state["status"],
-                    "current_room": self.rover.rover_state["current_room"],
-                    "target_destination": self.rover.rover_state["target_destination"],
-                    "battery_pct": self.rover.rover_state.get("battery_pct", 90),
+                    "status": tiago_info["status"],
+                    "current_room": tiago_info["current_room"],
+                    "target_destination": tiago_info.get("target_destination"),
+                    "battery_pct": tiago_info.get("battery_pct", 98),
+                    "held_object": tiago_info.get("held_object", ""),
                 },
             }
 
@@ -274,6 +304,71 @@ class SmartHomeController:
 
     def request_scene(self, scene: str) -> dict[str, Any]:
         return self.dispatch_command({"domain": "scene", "scene": scene})
+
+    # --- Humans, Household Objects & AI Tasks Facade ---
+
+    def list_humans(self) -> list[dict[str, Any]]:
+        with self.state_lock:
+            return self.humans.list_humans()
+
+    def request_human_control(self, req_data: dict[str, Any]) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "human", **req_data})
+
+    def list_objects(self) -> list[dict[str, Any]]:
+        with self.state_lock:
+            return self.events_tasks.list_objects()
+
+    def request_object_move(
+        self,
+        object_name: str,
+        surface: str | None = None,
+        x: float | None = None,
+        y: float | None = None,
+        z: float | None = None,
+    ) -> dict[str, Any]:
+        return self.dispatch_command({
+            "domain": "object_move",
+            "object_name": object_name,
+            "surface": surface,
+            "x": x,
+            "y": y,
+            "z": z,
+        })
+
+    def request_objects_reset(self) -> list[dict[str, Any]]:
+        res = self.dispatch_command({"domain": "object_reset"})
+        return res if isinstance(res, list) else self.list_objects()
+
+    def get_tasks_and_events(self) -> dict[str, Any]:
+        with self.state_lock:
+            return self.events_tasks.get_state()
+
+    def request_create_task(self, req_data: dict[str, Any]) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "task_create", **req_data})
+
+    def request_approve_task(self, task_id: str) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "task_approve", "task_id": task_id})
+
+    def request_reject_task(self, task_id: str) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "task_reject", "task_id": task_id})
+
+    def request_task_settings(
+        self,
+        ambient_enabled: bool | None = None,
+        hitl_enabled: bool | None = None,
+    ) -> dict[str, Any]:
+        with self.state_lock:
+            if ambient_enabled is not None:
+                self.events_tasks.ambient_enabled = ambient_enabled
+            if hitl_enabled is not None:
+                self.events_tasks.hitl_enabled = hitl_enabled
+            return self.events_tasks.get_state()
+
+    def request_trigger_scenario(self, scenario: str) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "scenario_trigger", "scenario": scenario})
+
+    def request_pulse_sensor(self, sensor_id: str, duration: float = 8.0) -> dict[str, Any]:
+        return self.dispatch_command({"domain": "sensor_pulse", "sensor_id": sensor_id, "duration": duration})
 
     # --- Beacon Home Robots (PAL Robotics TIAGo) Facade ---
 
@@ -288,16 +383,20 @@ class SmartHomeController:
             pass
 
         with self.state_lock:
-            r = self.rover.rover_state
+            fb = self.tiago_fallback
             if tiago_direct:
                 pose = tiago_direct.get("pose", {})
-                x = pose.get("x", r.get("position", [-3.1, -7.5, 0.1])[0])
-                y = pose.get("y", r.get("position", [-3.1, -7.5, 0.1])[1])
-                theta = pose.get("theta", r.get("heading_rad", 1.57))
-                nearest_node, room_name = self.rover._infer_nearest_node(x, y)
+                x = pose.get("x", fb["pose"]["x"])
+                y = pose.get("y", fb["pose"]["y"])
+                theta = pose.get("theta", fb["pose"]["theta"])
+                nearest_node, room_name = self._infer_nearest_node(x, y)
                 task = tiago_direct.get("task", "idle")
                 is_docked = nearest_node == "foyer" and math.hypot(x - (-3.10), y - (-7.62)) < 0.4
-                status = "Navigating" if "navigat" in task.lower() else ("Docked" if is_docked else ("Idle" if task == "idle" else task))
+                status = (
+                    "Navigating"
+                    if "navigat" in task.lower()
+                    else ("Docked" if is_docked and task == "idle" else ("Idle" if task == "idle" else task))
+                )
                 return [
                     {
                         "id": "tiago",
@@ -305,8 +404,8 @@ class SmartHomeController:
                         "model": "PAL Robotics TIAGo",
                         "type": "Mobile Manipulator",
                         "status": status,
-                        "current_room": room_name,
-                        "current_node": nearest_node,
+                        "current_room": tiago_direct.get("current_room", room_name),
+                        "current_node": tiago_direct.get("current_node", nearest_node),
                         "battery_pct": round(tiago_direct.get("battery", 85)),
                         "pose": {"x": round(x, 3), "y": round(y, 3), "theta": round(theta, 3)},
                         "target_destination": task.replace("navigating to", "").strip() if "navigating to" in task else None,
@@ -314,6 +413,7 @@ class SmartHomeController:
                         "gripper": tiago_direct.get("gripper", "open"),
                         "held_object": tiago_direct.get("held_object", ""),
                         "task_description": task,
+                        "patrol_logs": tiago_direct.get("patrol_logs", []),
                         "online": True,
                     }
                 ]
@@ -324,21 +424,18 @@ class SmartHomeController:
                     "name": "TIAGo",
                     "model": "PAL Robotics TIAGo",
                     "type": "Mobile Manipulator",
-                    "status": r.get("status", "Docked"),
-                    "current_room": r.get("current_room", "Foyer"),
-                    "current_node": r.get("current_node", "foyer"),
-                    "battery_pct": r.get("battery_pct", 90),
-                    "pose": {
-                        "x": r.get("position", [-3.1, -7.5, 0.1])[0],
-                        "y": r.get("position", [-3.1, -7.5, 0.1])[1],
-                        "theta": r.get("heading_rad", 1.57),
-                    },
-                    "target_destination": r.get("target_destination"),
-                    "arm_pose": r.get("arm_pose", "home"),
-                    "gripper": "closed" if r.get("gripper") == "grip" else "open",
-                    "held_object": "",
-                    "task_description": r.get("status", "idle").lower(),
-                    "online": bool(self.rover.rover_node),
+                    "status": fb["status"],
+                    "current_room": fb["current_room"],
+                    "current_node": fb["current_node"],
+                    "battery_pct": fb["battery_pct"],
+                    "pose": dict(fb["pose"]),
+                    "target_destination": fb["target_destination"],
+                    "arm_pose": fb["arm_pose"],
+                    "gripper": fb["gripper"],
+                    "held_object": fb["held_object"],
+                    "task_description": fb["task_description"],
+                    "patrol_logs": list(fb["patrol_logs"]),
+                    "online": bool(self.tiago_node),
                 }
             ]
 
@@ -389,71 +486,98 @@ class SmartHomeController:
                 )
                 with urllib.request.urlopen(req, timeout=1.0) as resp:
                     return json.loads(resp.read().decode("utf-8"))
+            elif action == "pick" and action_data.get("object"):
+                payload = json.dumps({"object": action_data["object"]}).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/manipulate/pick",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            elif action == "place" and action_data.get("location"):
+                payload = json.dumps({"location": action_data["location"]}).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/manipulate/place",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            elif action == "patrol":
+                payload = json.dumps({"rooms": action_data.get("rooms")}).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/errand/patrol",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            elif action == "fetch" and action_data.get("item") and action_data.get("from_location"):
+                payload = json.dumps({
+                    "item": action_data["item"],
+                    "from_location": action_data["from_location"],
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/errand/fetch",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            elif action == "deliver" and action_data.get("item"):
+                payload = json.dumps({
+                    "item": action_data["item"],
+                    "from_location": action_data.get("from_location", "kitchen"),
+                    "to_location": action_data.get("to_location", "living_room"),
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:8001/errand/deliver",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(req, timeout=1.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
         except Exception:
             pass
 
-        if action == "navigate" and action_data.get("destination"):
-            return self.request_rover_navigation(action_data["destination"])
-        if action == "stop":
-            return self.request_rover_control({"action": "stop"})
-        if action == "arm":
-            return self.request_rover_control({"action": "arm", "arm_pose": action_data.get("pose", "home")})
-        if action == "gripper":
-            g_state = "grip" if action_data.get("gripper_state") == "closed" else "release"
-            return self.request_rover_control({"action": "gripper", "gripper_state": g_state})
-        return {"success": True}
-
-    # --- Autonomous Mobile Robot (Rover) Facade ---
-
-    def get_rover_state(self) -> dict[str, Any]:
+        # Standalone fallback state updates when Webots TIAGo process on :8001 is offline
         with self.state_lock:
-            return dict(self.rover.rover_state)
-
-    def request_rover_route_plan(self, destination: str, start_node: str | None = None) -> dict[str, Any]:
-        return self.dispatch_command({
-            "domain": "rover",
-            "sub_action": "plan_route",
-            "destination": destination,
-            "start_node": start_node,
-        })
-
-    def request_rover_navigation(self, destination: str) -> dict[str, Any]:
-        return self.dispatch_command({
-            "domain": "rover",
-            "sub_action": "navigate",
-            "destination": destination,
-        })
-
-    def request_rover_pose(self, x: float, y: float, yaw: float = 0.0) -> dict[str, Any]:
-        return self.dispatch_command({
-            "domain": "rover",
-            "sub_action": "goto_pose",
-            "x": x,
-            "y": y,
-            "yaw": yaw,
-        })
-
-    def request_rover_control(self, req_data: dict[str, Any]) -> dict[str, Any]:
-        return self.dispatch_command({
-            "domain": "rover",
-            "sub_action": "control",
-            **req_data,
-        })
-
-    # --- Demo Cinematography & Video Recording Facade ---
-
-    def request_camera_focus(self, req_data: dict[str, Any]) -> dict[str, Any]:
-        return self.dispatch_command({"domain": "demo_camera", **req_data})
-
-    def request_recording_start(self, req_data: dict[str, Any]) -> dict[str, Any]:
-        return self.dispatch_command({"domain": "demo_record_start", **req_data})
-
-    def request_recording_stop(self) -> dict[str, Any]:
-        return self.dispatch_command({"domain": "demo_record_stop"})
-
-    def get_demo_status(self) -> dict[str, Any]:
-        with self.state_lock:
-            return self.demo.get_status()
+            fb = self.tiago_fallback
+            if action == "navigate" and action_data.get("destination"):
+                dest = str(action_data["destination"])
+                if dest in NAV_NODES:
+                    px, py, ptheta = NAV_NODES[dest]["pose"]
+                    fb["pose"] = {"x": px, "y": py, "theta": ptheta}
+                    fb["current_node"] = dest
+                    fb["current_room"] = str(NAV_NODES[dest]["room"])
+                fb["status"] = "Navigating"
+                fb["target_destination"] = dest
+                fb["task_description"] = f"navigating to {dest}"
+            elif action == "stop":
+                fb["status"] = "Idle"
+                fb["target_destination"] = None
+                fb["task_description"] = "idle"
+            elif action == "arm" and action_data.get("pose"):
+                fb["arm_pose"] = str(action_data["pose"])
+            elif action == "gripper" and action_data.get("gripper_state"):
+                fb["gripper"] = str(action_data["gripper_state"])
+                if fb["gripper"] == "open":
+                    fb["held_object"] = ""
+            elif action == "pick" and action_data.get("object"):
+                fb["held_object"] = str(action_data["object"])
+                fb["gripper"] = "closed"
+                fb["arm_pose"] = "carry"
+            elif action == "place" and action_data.get("location"):
+                if fb["held_object"]:
+                    self.events_tasks.move_object(fb["held_object"], surface=None)
+                fb["held_object"] = ""
+                fb["gripper"] = "open"
+                fb["arm_pose"] = "home"
+            elif action == "patrol":
+                fb["status"] = "Patrolling"
+                fb["task_description"] = "patrolling home zones"
+        return {"success": True, "status": "ok"}
 
     # --- Multi-Domain Scene Execution ---
 
@@ -478,7 +602,6 @@ class SmartHomeController:
                 self.access.execute_blind_cmd({"blind_id": b_id, "position": 0})
             for d_id in self.access.door_states:
                 self.access.execute_door_cmd({"door_id": d_id, "open_state": "closed", "locked": True})
-            self.rover.execute_cmd({"sub_action": "navigate", "destination": "patrol"}, self.access)
         elif scene == "movie":
             self.climate_appliances.execute_environment_cmd({"time_of_day": "sunset"})
             for b_id in self.access.blind_states:
@@ -516,8 +639,13 @@ class SmartHomeController:
     def step_simulation(self) -> None:
         with self.state_lock:
             self.perception.step_sensors_and_cameras()
-            self.rover.update_telemetry()
-            self.demo.step()
+            self.humans.step_humans(self.time_step / 1000.0)
+            self.events_tasks.step_events(
+                self.perception.sensor_states,
+                self.lighting,
+                self.access,
+                self.climate_appliances,
+            )
 
         while not self.command_queue.empty():
             cmd = self.command_queue.get()
@@ -534,20 +662,59 @@ class SmartHomeController:
                         res = self.climate_appliances.execute_environment_cmd(cmd)
                     elif domain == "scene":
                         res = self._execute_scene_cmd(cmd)
-                    elif domain == "rover":
-                        res = self.rover.execute_cmd(cmd, self.access)
-                    elif domain == "demo_camera":
-                        res = self.demo.focus_camera(
-                            cmd,
+                    elif domain == "human":
+                        res = self.humans.execute_cmd(cmd)
+                    elif domain == "object_move":
+                        res = self.events_tasks.move_object(
+                            object_name=cmd["object_name"],
+                            surface=cmd.get("surface"),
+                            x=cmd.get("x"),
+                            y=cmd.get("y"),
+                            z=cmd.get("z"),
+                        )
+                    elif domain == "object_reset":
+                        res = self.events_tasks.reset_objects()
+                    elif domain == "task_create":
+                        res = self.events_tasks.create_custom_task(
+                            title=cmd["title"],
+                            description=cmd["description"],
+                            category=cmd.get("category", "errand"),
+                            mode=cmd.get("mode", "hitl"),
+                            trigger_source=cmd.get("trigger_source", "Beacon AI Agent"),
+                            room=cmd.get("room", "Living Room"),
+                            proposed_actions=cmd.get("proposed_actions", []),
+                            lighting=self.lighting,
+                            access=self.access,
+                            climate_appliances=self.climate_appliances,
+                        )
+                    elif domain == "task_approve":
+                        res = self.events_tasks.approve_task(
+                            cmd["task_id"],
                             self.lighting,
                             self.access,
-                            self.rover,
-                            self.time_step,
+                            self.climate_appliances,
                         )
-                    elif domain == "demo_record_start":
-                        res = self.demo.start_recording(cmd)
-                    elif domain == "demo_record_stop":
-                        res = self.demo.stop_recording()
+                    elif domain == "task_reject":
+                        res = self.events_tasks.reject_task(cmd["task_id"])
+                    elif domain == "scenario_trigger":
+                        res = self.events_tasks.trigger_scenario_event(
+                            cmd["scenario"],
+                            self.lighting,
+                            self.access,
+                            self.climate_appliances,
+                            self.humans,
+                            self.perception.sensor_states,
+                        )
+                    elif domain == "sensor_pulse":
+                        self.events_tasks.pulse_sensor_override(cmd["sensor_id"], float(cmd.get("duration", 8.0)))
+                        self.events_tasks._sensor_cooldowns.clear()
+                        self.events_tasks.step_events(
+                            self.perception.sensor_states,
+                            self.lighting,
+                            self.access,
+                            self.climate_appliances,
+                        )
+                        res = {"status": "triggered", "sensor_id": cmd["sensor_id"]}
                     else:
                         res = {"error": f"Unknown domain {domain}"}
 

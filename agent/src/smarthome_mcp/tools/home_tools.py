@@ -56,3 +56,53 @@ def register_home_tools(
         Change the simulated exterior sun luminosity and time of day ('day', 'sunset', or 'night').
         """
         return await service.set_environment(time_of_day)
+
+    @mcp.tool()
+    async def get_humans() -> list[dict[str, Any]]:
+        """
+        Get live positions, rooms, and walking/standing status of all human occupants and visitors
+        in the smart home (Alex the Resident and Sam the Visitor).
+        """
+        return await service.list_humans()
+
+    @mcp.tool()
+    async def get_household_objects() -> list[dict[str, Any]]:
+        """
+        Get the current room and 3D coordinates of all 10 physical household objects
+        (cup, bottle, medicine_box, plate, tray, remote_control, keys, book, phone, glasses).
+        """
+        return await service.list_objects()
+
+    @mcp.tool()
+    async def get_ai_tasks() -> dict[str, Any]:
+        """
+        Get the list of Ambient & Human-in-the-Loop (HITL) AI Tasks and recent Webots sensor events.
+        """
+        return await service.list_tasks()
+
+    @mcp.tool()
+    async def propose_ai_task(
+        title: str,
+        description: str,
+        category: Literal["security", "comfort", "errand", "energy", "safety"] = "errand",
+        mode: Literal["ambient", "hitl"] = "hitl",
+        room: str = "Living Room",
+    ) -> dict[str, Any]:
+        """
+        Create a new Ambient (auto-executed) or Human-in-the-Loop (HITL pending approval) AI Task
+        in the Beacon AI Tasks sidebar panel.
+        """
+        return await service.create_task(
+            title=title,
+            description=description,
+            category=category,
+            mode=mode,
+            room=room,
+        )
+
+    @mcp.tool()
+    async def approve_ai_task(task_id: str) -> dict[str, Any]:
+        """
+        Approve and execute a pending Human-in-the-Loop (HITL) AI Task by its task_id.
+        """
+        return await service.approve_task(task_id)

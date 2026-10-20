@@ -137,7 +137,7 @@ class StandaloneSupervisor:
     """
     Drop-in Webots Supervisor replacement when Webots GUI is not attached,
     pre-populated with all lights, doors, blinds, radiators, appliances,
-    cameras, sensors, and the Beacon KUKA youBot from `beacon_home.wbt`.
+    cameras, sensors, household objects, humans, and PAL Robotics TIAGo from `beacon_home.wbt`.
     """
 
     def __init__(self, time_step: int = 32) -> None:
@@ -145,14 +145,6 @@ class StandaloneSupervisor:
         self._nodes: list[MockNode] = []
         self._defs: dict[str, MockNode] = {}
         self._devices: dict[str, Any] = {}
-        self._movie_path: str | None = None
-        self._movie_ready: bool = True
-
-        # Rover kinematic simulation state for standalone mode
-        self._rover_waypoints: list[list[float]] = []
-        self._rover_wp_idx: int = 0
-        self._rover_mode: str = "idle"
-        self._last_cmd_id: int = 0
 
         self._build_world()
 
@@ -280,17 +272,69 @@ class StandaloneSupervisor:
             self._add_node(nid, str(cfg["type"]), {"name": app_name})
             nid += 1
 
-        # BEACON_ROVER (KUKA youBot)
-        self._rover_node = self._add_node(
+        # Physical Household Objects (OBJ_*)
+        objects_spec = [
+            ("OBJ_CUP", "cup", [-2.35, -2.15, 0.955]),
+            ("OBJ_BOTTLE", "bottle", [-2.35, -2.45, 1.000]),
+            ("OBJ_MEDICINE_BOX", "medicine_box", [-2.35, -2.75, 0.940]),
+            ("OBJ_PLATE", "plate", [-2.68, -2.35, 0.915]),
+            ("OBJ_TRAY", "tray", [-2.68, -2.70, 0.915]),
+            ("OBJ_REMOTE_CONTROL", "remote_control", [-5.85, -2.65, 0.565]),
+            ("OBJ_KEYS", "keys", [-10.10, -1.63, 0.755]),
+            ("OBJ_BOOK", "book", [-6.85, -12.20, 0.735]),
+            ("OBJ_PHONE", "phone", [-2.40, -9.80, 0.580]),
+            ("OBJ_GLASSES", "glasses", [-1.43, -3.61, 0.755]),
+        ]
+        for def_name, obj_name, pos in objects_spec:
+            self._add_node(nid, "SolidBox", {"name": obj_name, "translation": pos}, def_name=def_name)
+            nid += 1
+
+        # Pedestrian Humans (RESIDENT_HUMAN & GUEST_HUMAN)
+        joint_fields = {
+            j: 0.0
+            for j in (
+                "leftArmAngle", "leftLowerArmAngle", "leftHandAngle",
+                "rightArmAngle", "rightLowerArmAngle", "rightHandAngle",
+                "leftLegAngle", "leftLowerLegAngle", "leftFootAngle",
+                "rightLegAngle", "rightLowerLegAngle", "rightFootAngle",
+                "headAngle",
+            )
+        }
+        self._add_node(
             nid,
-            "Youbot",
+            "Pedestrian",
             {
-                "name": "Beacon Rover",
-                "translation": [-3.1, -7.5, 0.1028],
-                "rotation": [0.0, 0.0, 1.0, 1.5708],
-                "customData": "",
+                "name": "Alex (Resident)",
+                "translation": [-6.0, -3.1, 1.27],
+                "rotation": [0.0, 0.0, 1.0, 0.0],
+                **joint_fields,
             },
-            def_name="BEACON_ROVER",
+            def_name="RESIDENT_HUMAN",
+        )
+        nid += 1
+        self._add_node(
+            nid,
+            "Pedestrian",
+            {
+                "name": "Sam (Visitor)",
+                "translation": [1.6, -7.49, 1.27],
+                "rotation": [0.0, 0.0, 1.0, 3.14159],
+                **joint_fields,
+            },
+            def_name="GUEST_HUMAN",
+        )
+        nid += 1
+
+        # BEACON_TIAGO (PAL Robotics TIAGo)
+        self._add_node(
+            nid,
+            "Tiago",
+            {
+                "name": "TIAGo",
+                "translation": [-3.1, -7.5, 0.095],
+                "rotation": [0.0, 0.0, 1.0, 1.5708],
+            },
+            def_name="BEACON_TIAGO",
         )
 
         # Cameras & Sensors
@@ -315,91 +359,6 @@ class StandaloneSupervisor:
     def getDevice(self, name: str) -> Any:
         return self._devices.get(name)
 
-    def _step_standalone_rover(self) -> None:
-        """Simulate KUKA youBot waypoint movement when running in standalone mode."""
-        import json
-
-        cd_field = self._rover_node.getField("customData")
-        t_field = self._rover_node.getField("translation")
-        r_field = self._rover_node.getField("rotation")
-        if not cd_field or not t_field or not r_field:
-            return
-
-        raw = cd_field.getSFString()
-        if raw:
-            try:
-                parsed = json.loads(raw)
-                cmd_list = parsed.get("commands", [parsed]) if isinstance(parsed, dict) else []
-                for cmd in cmd_list:
-                    cid = int(cmd.get("cmd_id", 0)) or int(float(cmd.get("ts", 0.0)) * 1_000_000)
-                    if cid <= self._last_cmd_id:
-                        continue
-                    self._last_cmd_id = cid
-                    action = cmd.get("action")
-                    if action == "stop":
-                        self._rover_mode = "idle"
-                        self._rover_waypoints.clear()
-                    elif action in ("goto", "patrol"):
-                        self._rover_mode = action
-                        self._rover_waypoints = [[float(p[0]), float(p[1]), float(p[2])] for p in cmd.get("waypoints", [])]
-                        self._rover_wp_idx = 0
-            except Exception:
-                pass
-
-        if self._rover_mode in ("goto", "patrol") and self._rover_waypoints:
-            wp = self._rover_waypoints[self._rover_wp_idx]
-            pos = t_field.getSFVec3f()
-            dx = wp[0] - pos[0]
-            dy = wp[1] - pos[1]
-            dist = math.hypot(dx, dy)
-            step_dist = 0.9 * (self._time_step / 1000.0)
-            if dist <= step_dist:
-                t_field.setSFVec3f([wp[0], wp[1], pos[2]])
-                r_field.setSFRotation([0.0, 0.0, 1.0, wp[2]])
-                self._rover_wp_idx += 1
-                if self._rover_wp_idx >= len(self._rover_waypoints):
-                    if self._rover_mode == "patrol":
-                        self._rover_wp_idx = 0
-                    else:
-                        self._rover_mode = "idle"
-                        self._rover_waypoints.clear()
-            else:
-                heading = math.atan2(dy, dx)
-                t_field.setSFVec3f([
-                    pos[0] + (dx / dist) * step_dist,
-                    pos[1] + (dy / dist) * step_dist,
-                    pos[2],
-                ])
-                r_field.setSFRotation([0.0, 0.0, 1.0, heading])
-
     def step(self, time_step: int) -> int:
-        self._step_standalone_rover()
         time.sleep(max(0.005, time_step / 1000.0))
         return 0
-
-    def movieStartRecording(
-        self,
-        filename: str,
-        width: int,
-        height: int,
-        codec: int,
-        quality: int,
-        acceleration: int,
-        caption: bool,
-    ) -> None:
-        from pathlib import Path
-
-        self._movie_path = filename
-        self._movie_ready = False
-        Path(filename).parent.mkdir(parents=True, exist_ok=True)
-        Path(filename).write_bytes(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
-        self._movie_ready = True
-
-    def movieStopRecording(self) -> None:
-        self._movie_ready = True
-
-    def movieIsReady(self) -> bool:
-        return self._movie_ready
-
-    def movieFailed(self) -> bool:
-        return False

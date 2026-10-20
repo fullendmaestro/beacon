@@ -151,34 +151,58 @@ def look_at(
 @tiago_mcp.tool()
 def get_tiago_camera_image() -> dict:
     """
-    Capture a snapshot from TIAGo's head-mounted RGB camera.
-    Returns image metadata and a filesystem path to the saved image.
+    Capture a snapshot from TIAGo's head-mounted Orbbec Astra RGB camera.
+    Returns image metadata, nearby 3D household objects, and nearby humans.
     """
     return svc.get_camera_image()
 
 
 @tiago_mcp.tool()
+def inspect_scene_visually(
+    query: Annotated[
+        str,
+        "Visual question or search target (e.g. 'Where are my keys?', 'Who is in the living room?')",
+    ] = "Describe what is visible in the room, including any objects, appliances, or people.",
+    room: Annotated[
+        str | None,
+        "Optional room to navigate to before inspecting (e.g. 'kitchen', 'living_room', 'dining_room')",
+    ] = None,
+    sweep: Annotated[
+        bool,
+        "Whether to sweep the head camera (left, right, down, forward) during inspection",
+    ] = True,
+) -> dict:
+    """
+    Multimodal Visual Search & Inspector:
+    Optionally navigates TIAGo to *room*, automatically turns on room lights if dark,
+    sweeps TIAGo's pan/tilt head camera, captures an RGB frame + 3D Supervisor detections
+    (nearby graspable objects and human actors), and returns a multimodal visual summary.
+    """
+    return svc.inspect_scene(query=query, room=room, sweep=sweep)
+
+
+@tiago_mcp.tool()
 def list_tiago_objects() -> dict:
     """
-    Return the catalogue of household objects TIAGo is capable of recognising and
-    interacting with in the current simulation.
+    Return the catalogue of 10 graspable household objects TIAGo can pick up with
+    Supervisor-Assisted Magnetic Grasp, along with their live 3D coordinates.
     """
     return svc.list_known_objects()
 
 
 # ═══════════════════════════════════════════════════════════
-# High-level Errands
+# High-level Errands & Security Patrol
 # ═══════════════════════════════════════════════════════════
 
 @tiago_mcp.tool()
 def deliver_item(
-    item: Annotated[str, "Name of the item to deliver"],
-    from_location: Annotated[str, "Room or surface where the item is currently located"],
-    to_location: Annotated[str, "Destination room or surface"],
+    item: Annotated[str, "Name of the item to deliver (e.g. 'cup', 'bottle', 'medicine_box', 'keys')"],
+    from_location: Annotated[str, "Room where the item is currently located (e.g. 'kitchen')"],
+    to_location: Annotated[str, "Destination room (e.g. 'living_room', 'master_bedroom')"],
 ) -> dict:
     """
-    High-level errand: navigate to *from_location*, pick *item*, navigate to
-    *to_location*, then place the item there.
+    High-level errand: navigate to *from_location*, pick *item* using Supervisor Magnetic Grasp,
+    navigate to *to_location*, and place the item onto the room surface.
     Returns task ID and live status for tracking.
     """
     return svc.deliver_item(item, from_location, to_location)
@@ -187,20 +211,34 @@ def deliver_item(
 @tiago_mcp.tool()
 def fetch_item(
     item: Annotated[str, "Name of the item to fetch"],
-    from_location: Annotated[str, "Room or surface where the item currently is"],
+    from_location: Annotated[str, "Room where the item currently is"],
 ) -> dict:
     """
-    High-level errand: navigate to *from_location*, pick *item*, then return
-    to TIAGo's home/docking position holding the item.
+    High-level errand: navigate to *from_location*, pick *item* using Supervisor Magnetic Grasp,
+    then return to TIAGo's foyer docking position holding the item.
     """
     return svc.fetch_item(item, from_location)
+
+
+@tiago_mcp.tool()
+def patrol_home(
+    rooms: Annotated[
+        list[str] | None,
+        "Optional list of rooms to patrol (defaults to ['living_room', 'dining_room', 'kitchen', 'master_bedroom', 'study_bedroom'])",
+    ] = None,
+) -> dict:
+    """
+    High-level security patrol errand: autonomously visits each room in sequence,
+    ensures lighting is on, sweeps the head camera, logs all detected objects and humans,
+    and returns to the foyer dock.
+    """
+    return svc.patrol_home(rooms=rooms)
 
 
 @tiago_mcp.tool()
 def get_errand_status() -> dict:
     """
     Return the status and step-by-step progress of TIAGo's currently running
-    high-level errand (deliver/fetch/patrol).
-    Fields: task_id, errand_type, current_step, total_steps, status, message.
+    high-level errand (deliver/fetch/patrol), including held_object and patrol_logs.
     """
     return svc.get_errand_status()

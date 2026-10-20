@@ -163,3 +163,29 @@ class SmartHomeHubClient:
 
     async def get_cameras(self) -> list[dict[str, Any]]:
         return await self._get("/api/cameras")
+
+    # --- Humans, Household Objects & AI Tasks ---
+
+    async def get_humans(self) -> list[dict[str, Any]]:
+        return await self._get("/api/humans")
+
+    async def control_human(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._post("/api/humans/control", payload)
+
+    async def get_objects(self) -> list[dict[str, Any]]:
+        return await self._get("/api/objects")
+
+    async def move_object(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._post("/api/objects/move", payload)
+
+    async def get_tasks(self) -> dict[str, Any]:
+        return await self._get("/api/tasks")
+
+    async def create_task(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self._post("/api/tasks", payload)
+
+    async def approve_task(self, task_id: str) -> dict[str, Any]:
+        return await self._post(f"/api/tasks/{task_id}/approve")
+
+    async def reject_task(self, task_id: str) -> dict[str, Any]:
+        return await self._post(f"/api/tasks/{task_id}/reject")
