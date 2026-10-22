@@ -10,3 +10,7 @@ build/
 dist/
 .DS_Store
 .langgraph_api/
+*.db
+*.db-shm
+*.db-wal
+

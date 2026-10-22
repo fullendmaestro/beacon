@@ -169,6 +169,24 @@ def build_vrml_node_string(dev: dict[str, Any]) -> str:
                 f'  name "{wbt_name}"\n'
                 f'}}'
             )
+        if proto == "Microwave":
+            return (
+                f'DEF {wbt_def} Oven {{\n'
+                f'  translation {tx} {ty} {tz}\n'
+                f'  rotation {rx} {ry} {rz} {ra}\n'
+                f'  name "{wbt_name}"\n'
+                f'  mainColor 0.2 0.22 0.25\n'
+                f'  type "microwave"\n'
+                f'}}'
+            )
+        if proto in ("Cooktop", "HotPlate"):
+            return (
+                f'DEF {wbt_def} HotPlate {{\n'
+                f'  translation {tx} {ty} {tz}\n'
+                f'  rotation {rx} {ry} {rz} {ra}\n'
+                f'  name "{wbt_name}"\n'
+                f'}}'
+            )
         if proto == "Television":
             return (
                 f'DEF {wbt_def} Television {{\n'
@@ -179,11 +197,10 @@ def build_vrml_node_string(dev: dict[str, Any]) -> str:
                 f'}}'
             )
         return (
-            f'DEF {wbt_def} SolidBox {{\n'
+            f'DEF {wbt_def} Solid {{\n'
             f'  translation {tx} {ty} {tz}\n'
             f'  rotation {rx} {ry} {rz} {ra}\n'
             f'  name "{wbt_name}"\n'
-            f'  size 0.5 0.5 0.5\n'
             f'}}'
         )
 
@@ -461,9 +478,12 @@ class WorldSpawnerSupervisor:
                         pose = robot.get("pose", {})
                         if tf and "x" in pose and "y" in pose:
                             cur_t = list(tf.getSFVec3f())
-                            tf.setSFVec3f([float(pose["x"]), float(pose["y"]), cur_t[2]])
-                        if rf and "theta" in pose:
-                            rf.setSFRotation([0.0, 0.0, 1.0, float(pose["theta"])])
+                            # Only hot-teleport TIAGo if it has moved away from the Foyer dock
+                            if math.hypot(float(pose["x"]) - cur_t[0], float(pose["y"]) - cur_t[1]) > 0.35:
+                                tf.setSFVec3f([float(pose["x"]), float(pose["y"]), cur_t[2]])
+                                if rf and "theta" in pose:
+                                    rf.setSFRotation([0.0, 0.0, 1.0, float(pose["theta"])])
+                                tiago.resetPhysics()
 
             elif topic == "device.lifecycle.provisioned":
                 self.spawn_device_node(payload)

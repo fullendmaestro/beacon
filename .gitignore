@@ -15,3 +15,8 @@ artifacts
 __pycache__/
 *.pyc
 *.pyo
+
+# SQLite databases (WAL mode)
+*.db
+*.db-shm
+*.db-wal
