@@ -124,14 +124,23 @@ def build_vrml_node_string(dev: dict[str, Any]) -> str:
         c_z = float(cfg.get("closed_z", tz))
         o_z = float(cfg.get("open_z", tz + 2.25))
         curr_z = c_z + (o_z - c_z) * pos_pct
-        joint_str = "  jointAtLeft FALSE\n" if cfg.get("jointAtLeft") is False else ""
+        can_be_open = bool(cfg.get("canBeOpen", False))
+        can_be_open_str = "TRUE" if can_be_open else "FALSE"
+        has_static_parent_str = "FALSE" if can_be_open else "TRUE"
+        joint_at_left = cfg.get("jointAtLeft", True)
+        joint_val_str = "TRUE" if joint_at_left else "FALSE"
         return (
             f'DEF {wbt_def} Door {{\n'
             f'  translation {tx} {ty} {curr_z}\n'
             f'  rotation {rx} {ry} {rz} {ra}\n'
             f'  name "{wbt_name}"\n'
             f'  size 0.3 1 2.4\n'
-            f'{joint_str}'
+            f'  canBeOpen {can_be_open_str}\n'
+            f'  jointAtLeft {joint_val_str}\n'
+            f'  doorHandle DoorLever {{\n'
+            f'    jointAtLeft {joint_val_str}\n'
+            f'    hasStaticParent {has_static_parent_str}\n'
+            f'  }}\n'
             f'  frameSize 0.001 0.05 0.05\n'
             f'  frameAppearance BrushedAluminium {{}}\n'
             f'}}'
