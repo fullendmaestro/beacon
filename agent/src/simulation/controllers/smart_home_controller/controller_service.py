@@ -9,7 +9,7 @@ import urllib.request
 from collections.abc import Generator
 from typing import Any
 
-from constants import APPLIANCE_DEFAULTS, SUPPORTED_LIGHT_TYPES
+from constants import APPLIANCE_DEFAULTS, NAV_NODES, SUPPORTED_LIGHT_TYPES
 try:
     from controller import Supervisor
 except ImportError:
@@ -18,10 +18,8 @@ from fastapi import HTTPException
 from managers import (
     AccessManager,
     ClimateApplianceManager,
-    DemoRecorderManager,
     LightingManager,
     PerceptionManager,
-    RoverManager,
 )
 
 logger = logging.getLogger("smart_home_controller")
@@ -34,7 +32,6 @@ class SmartHomeController:
       - AccessManager (doors, locks, garage door, driveway gate, motorized blinds)
       - ClimateApplianceManager (HVAC radiators, smart appliances, wall plugs, sun/sky)
       - PerceptionManager (security cameras, MJPEG streams, motion & daylight sensors)
-      - RoverManager (KUKA youBot autonomous navigation, 5-DOF arm, gripper, telemetry)
     """
 
     def __init__(self, supervisor: Any | None = None) -> None:
@@ -53,15 +50,12 @@ class SmartHomeController:
             self.supervisor = StandaloneSupervisor()
         self.time_step = int(self.supervisor.getBasicTimeStep())
         self.command_queue: queue.Queue = queue.Queue()
-        self.state_lock = threading.Lock()
+        self.state_lock = threading.RLock()
 
         self.lighting = LightingManager()
         self.access = AccessManager()
         self.climate_appliances = ClimateApplianceManager()
         self.perception = PerceptionManager()
-        self.rover = RoverManager()
-
-        self.demo = DemoRecorderManager()
 
     def _scan_root_children(self) -> list[Any]:
         nodes: list[Any] = []
@@ -100,14 +94,11 @@ class SmartHomeController:
 
             self.climate_appliances.ensure_all_default_appliances()
             self.access.init_def_barriers_and_blinds(self.supervisor)
-            self.rover.init_devices(self.supervisor)
-
-            self.demo.init_devices(self.supervisor, root_nodes)
 
         self.perception.init_devices(self.supervisor, self.time_step)
 
         logger.info(
-            "Initialized %d lights, %d doors/gates, %d blinds, %d HVAC zones, %d appliances, %d cameras, %d sensors, and Rover=%s.",
+            "Initialized %d lights, %d doors/gates, %d blinds, %d HVAC zones, %d appliances, %d cameras, and %d sensors.",
             len(self.lighting.light_nodes),
             len(self.access.door_nodes),
             len(self.access.blind_nodes),
@@ -115,8 +106,20 @@ class SmartHomeController:
             len(self.climate_appliances.appliance_states),
             len(self.perception.cameras),
             len(self.perception.sensor_states),
-            bool(self.rover.rover_node),
         )
+
+    @staticmethod
+    def _infer_nearest_node(x: float, y: float) -> tuple[str, str]:
+        best_node = "foyer"
+        best_dist = float("inf")
+        for node_key, data in NAV_NODES.items():
+            nx, ny = data["pose"][0], data["pose"][1]
+            d = math.hypot(x - nx, y - ny)
+            if d < best_dist:
+                best_dist = d
+                best_node = node_key
+        room_name = NAV_NODES[best_node].get("room", "Home")
+        return best_node, room_name
 
     def dispatch_command(self, cmd: dict[str, Any], timeout: float = 2.0) -> dict[str, Any]:
         completion = threading.Event()
@@ -244,6 +247,15 @@ class SmartHomeController:
             appliance_watts = sum(a["power_watts"] for a in self.climate_appliances.appliance_states.values())
             light_watts = lights_on * 12.0
             hvac_watts = sum(350.0 for c in self.climate_appliances.climate_states.values() if c["state"] == "On")
+            robot_list = self.list_robots()
+            robot_data = robot_list[0] if robot_list else {
+                "id": "tiago",
+                "name": "TIAGo",
+                "status": "Docked",
+                "current_room": "Foyer",
+                "target_destination": None,
+                "battery_pct": 90,
+            }
             return {
                 "lights_on": lights_on,
                 "total_lights": len(self.lighting.light_states),
@@ -254,18 +266,13 @@ class SmartHomeController:
                 "cameras_online": len(self.perception.list_cameras()),
                 "estimated_power_watts": round(appliance_watts + light_watts + hvac_watts, 1),
                 "environment": dict(self.climate_appliances.environment_state),
-                "rover": {
-                    "status": self.rover.rover_state["status"],
-                    "current_room": self.rover.rover_state["current_room"],
-                    "target_destination": self.rover.rover_state["target_destination"],
-                },
                 "robot": {
-                    "id": "tiago",
-                    "name": "TIAGo",
-                    "status": self.rover.rover_state["status"],
-                    "current_room": self.rover.rover_state["current_room"],
-                    "target_destination": self.rover.rover_state["target_destination"],
-                    "battery_pct": self.rover.rover_state.get("battery_pct", 90),
+                    "id": robot_data.get("id", "tiago"),
+                    "name": robot_data.get("name", "TIAGo"),
+                    "status": robot_data.get("status", "Docked"),
+                    "current_room": robot_data.get("current_room", "Foyer"),
+                    "target_destination": robot_data.get("target_destination"),
+                    "battery_pct": robot_data.get("battery_pct", 90),
                 },
             }
 
@@ -288,13 +295,12 @@ class SmartHomeController:
             pass
 
         with self.state_lock:
-            r = self.rover.rover_state
             if tiago_direct:
                 pose = tiago_direct.get("pose", {})
-                x = pose.get("x", r.get("position", [-3.1, -7.5, 0.1])[0])
-                y = pose.get("y", r.get("position", [-3.1, -7.5, 0.1])[1])
-                theta = pose.get("theta", r.get("heading_rad", 1.57))
-                nearest_node, room_name = self.rover._infer_nearest_node(x, y)
+                x = pose.get("x", -3.10)
+                y = pose.get("y", -7.62)
+                theta = pose.get("theta", 1.57)
+                nearest_node, room_name = self._infer_nearest_node(x, y)
                 task = tiago_direct.get("task", "idle")
                 is_docked = nearest_node == "foyer" and math.hypot(x - (-3.10), y - (-7.62)) < 0.4
                 status = "Navigating" if "navigat" in task.lower() else ("Docked" if is_docked else ("Idle" if task == "idle" else task))
@@ -324,21 +330,21 @@ class SmartHomeController:
                     "name": "TIAGo",
                     "model": "PAL Robotics TIAGo",
                     "type": "Mobile Manipulator",
-                    "status": r.get("status", "Docked"),
-                    "current_room": r.get("current_room", "Foyer"),
-                    "current_node": r.get("current_node", "foyer"),
-                    "battery_pct": r.get("battery_pct", 90),
+                    "status": "Docked",
+                    "current_room": "Foyer",
+                    "current_node": "foyer",
+                    "battery_pct": 90,
                     "pose": {
-                        "x": r.get("position", [-3.1, -7.5, 0.1])[0],
-                        "y": r.get("position", [-3.1, -7.5, 0.1])[1],
-                        "theta": r.get("heading_rad", 1.57),
+                        "x": -3.10,
+                        "y": -7.62,
+                        "theta": 1.57,
                     },
-                    "target_destination": r.get("target_destination"),
-                    "arm_pose": r.get("arm_pose", "home"),
-                    "gripper": "closed" if r.get("gripper") == "grip" else "open",
+                    "target_destination": None,
+                    "arm_pose": "home",
+                    "gripper": "open",
                     "held_object": "",
-                    "task_description": r.get("status", "idle").lower(),
-                    "online": bool(self.rover.rover_node),
+                    "task_description": "docked",
+                    "online": False,
                 }
             ]
 
@@ -389,71 +395,10 @@ class SmartHomeController:
                 )
                 with urllib.request.urlopen(req, timeout=1.0) as resp:
                     return json.loads(resp.read().decode("utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            return {"success": False, "error": f"Failed to communicate with TIAGo controller: {e}"}
 
-        if action == "navigate" and action_data.get("destination"):
-            return self.request_rover_navigation(action_data["destination"])
-        if action == "stop":
-            return self.request_rover_control({"action": "stop"})
-        if action == "arm":
-            return self.request_rover_control({"action": "arm", "arm_pose": action_data.get("pose", "home")})
-        if action == "gripper":
-            g_state = "grip" if action_data.get("gripper_state") == "closed" else "release"
-            return self.request_rover_control({"action": "gripper", "gripper_state": g_state})
         return {"success": True}
-
-    # --- Autonomous Mobile Robot (Rover) Facade ---
-
-    def get_rover_state(self) -> dict[str, Any]:
-        with self.state_lock:
-            return dict(self.rover.rover_state)
-
-    def request_rover_route_plan(self, destination: str, start_node: str | None = None) -> dict[str, Any]:
-        return self.dispatch_command({
-            "domain": "rover",
-            "sub_action": "plan_route",
-            "destination": destination,
-            "start_node": start_node,
-        })
-
-    def request_rover_navigation(self, destination: str) -> dict[str, Any]:
-        return self.dispatch_command({
-            "domain": "rover",
-            "sub_action": "navigate",
-            "destination": destination,
-        })
-
-    def request_rover_pose(self, x: float, y: float, yaw: float = 0.0) -> dict[str, Any]:
-        return self.dispatch_command({
-            "domain": "rover",
-            "sub_action": "goto_pose",
-            "x": x,
-            "y": y,
-            "yaw": yaw,
-        })
-
-    def request_rover_control(self, req_data: dict[str, Any]) -> dict[str, Any]:
-        return self.dispatch_command({
-            "domain": "rover",
-            "sub_action": "control",
-            **req_data,
-        })
-
-    # --- Demo Cinematography & Video Recording Facade ---
-
-    def request_camera_focus(self, req_data: dict[str, Any]) -> dict[str, Any]:
-        return self.dispatch_command({"domain": "demo_camera", **req_data})
-
-    def request_recording_start(self, req_data: dict[str, Any]) -> dict[str, Any]:
-        return self.dispatch_command({"domain": "demo_record_start", **req_data})
-
-    def request_recording_stop(self) -> dict[str, Any]:
-        return self.dispatch_command({"domain": "demo_record_stop"})
-
-    def get_demo_status(self) -> dict[str, Any]:
-        with self.state_lock:
-            return self.demo.get_status()
 
     # --- Multi-Domain Scene Execution ---
 
@@ -478,7 +423,7 @@ class SmartHomeController:
                 self.access.execute_blind_cmd({"blind_id": b_id, "position": 0})
             for d_id in self.access.door_states:
                 self.access.execute_door_cmd({"door_id": d_id, "open_state": "closed", "locked": True})
-            self.rover.execute_cmd({"sub_action": "navigate", "destination": "patrol"}, self.access)
+            self.request_robot_action({"action": "navigate", "destination": "hallway"})
         elif scene == "movie":
             self.climate_appliances.execute_environment_cmd({"time_of_day": "sunset"})
             for b_id in self.access.blind_states:
@@ -516,8 +461,6 @@ class SmartHomeController:
     def step_simulation(self) -> None:
         with self.state_lock:
             self.perception.step_sensors_and_cameras()
-            self.rover.update_telemetry()
-            self.demo.step()
 
         while not self.command_queue.empty():
             cmd = self.command_queue.get()
@@ -534,20 +477,6 @@ class SmartHomeController:
                         res = self.climate_appliances.execute_environment_cmd(cmd)
                     elif domain == "scene":
                         res = self._execute_scene_cmd(cmd)
-                    elif domain == "rover":
-                        res = self.rover.execute_cmd(cmd, self.access)
-                    elif domain == "demo_camera":
-                        res = self.demo.focus_camera(
-                            cmd,
-                            self.lighting,
-                            self.access,
-                            self.rover,
-                            self.time_step,
-                        )
-                    elif domain == "demo_record_start":
-                        res = self.demo.start_recording(cmd)
-                    elif domain == "demo_record_stop":
-                        res = self.demo.stop_recording()
                     else:
                         res = {"error": f"Unknown domain {domain}"}
 

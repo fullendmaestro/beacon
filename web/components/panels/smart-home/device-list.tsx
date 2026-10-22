@@ -12,7 +12,6 @@ import {
   Radar,
   Sun,
   Bot,
-  Navigation,
   OctagonX,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -28,7 +27,6 @@ import {
   type BlindDevice,
   type ClimateDevice,
   type ApplianceDevice,
-  type RobotDevice,
 } from "@/lib/smart-home-api";
 import { CameraModal } from "./controls/camera-modal";
 import { LightDrawer } from "./controls/light-drawer";
@@ -55,8 +53,6 @@ export function DeviceList({ category }: { category: SmartCategory }) {
     sensors,
     robots,
     setRobots,
-    rover,
-    setRover,
     isLoading,
     refresh,
   } = useCategoryDevices(category);

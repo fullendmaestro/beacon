@@ -7,14 +7,12 @@ import {
   Navigation,
   OctagonX,
   Battery,
-  BatteryCharging,
   BatteryMedium,
   BatteryLow,
   Eye,
   Hand,
   MapPin,
   Check,
-  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {

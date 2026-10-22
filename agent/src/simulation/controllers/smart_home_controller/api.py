@@ -13,17 +13,12 @@ from models import (
     DoorUpdateRequest,
     EnvironmentUpdateRequest,
     LightStateUpdateRequest,
-    RoverControlRequest,
-    RoverNavigateRequest,
-    RoverPoseRequest,
     SceneTriggerRequest,
-    DemoCameraFocusRequest,
-    DemoRecordingStartRequest,
 )
 
 
 def create_app(controller: SmartHomeController) -> FastAPI:
-    """Create and configure the FastAPI app for the Smart Home Hub & Rover Supervisor."""
+    """Create and configure the FastAPI app for the Smart Home Hub."""
     app = FastAPI(title="Beacon Simulated Smart Home Hub Controller", version="2.1.0")
     app.add_middleware(
         CORSMiddleware,
@@ -142,28 +137,6 @@ def create_app(controller: SmartHomeController) -> FastAPI:
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
 
-    # --- Autonomous Mobile Robot (Beacon KUKA youBot) ---
-
-    @app.get("/api/rover")
-    def get_rover() -> dict[str, Any]:
-        return controller.get_rover_state()
-
-    @app.get("/api/rover/plan/{destination}")
-    def plan_rover_route(destination: str, start_node: str | None = None) -> dict[str, Any]:
-        return controller.request_rover_route_plan(destination, start_node)
-
-    @app.post("/api/rover/navigate")
-    def navigate_rover(req: RoverNavigateRequest) -> dict[str, Any]:
-        return controller.request_rover_navigation(req.destination)
-
-    @app.post("/api/rover/goto_pose")
-    def goto_rover_pose(req: RoverPoseRequest) -> dict[str, Any]:
-        return controller.request_rover_pose(req.x, req.y, req.yaw)
-
-    @app.post("/api/rover/control")
-    def control_rover(req: RoverControlRequest) -> dict[str, Any]:
-        return controller.request_rover_control(req.model_dump(exclude_none=True))
-
     # --- Beacon Home Robots (PAL Robotics TIAGo) ---
 
     @app.get("/api/robots")
@@ -173,23 +146,5 @@ def create_app(controller: SmartHomeController) -> FastAPI:
     @app.post("/api/robots")
     def control_robot_endpoint(req: dict[str, Any]) -> dict[str, Any]:
         return controller.request_robot_action(req)
-    
-    # --- Demo Cinematography & Video Recording ---
-
-    @app.get("/api/demo/status")
-    def get_demo_status() -> dict[str, Any]:
-        return controller.get_demo_status()
-
-    @app.post("/api/demo/camera/focus")
-    def focus_demo_camera(req: DemoCameraFocusRequest) -> dict[str, Any]:
-        return controller.request_camera_focus(req.model_dump(exclude_none=True))
-
-    @app.post("/api/demo/recording/start")
-    def start_demo_recording(req: DemoRecordingStartRequest) -> dict[str, Any]:
-        return controller.request_recording_start(req.model_dump(exclude_none=True))
-
-    @app.post("/api/demo/recording/stop")
-    def stop_demo_recording() -> dict[str, Any]:
-        return controller.request_recording_stop()
 
     return app

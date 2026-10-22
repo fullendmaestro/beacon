@@ -9,7 +9,7 @@ import {
 } from "@assistant-ui/react-langgraph";
 
 import { createClient } from "@/lib/chatApi";
-import { SmartHomeToolUIs } from "@/components/assistant-ui/tools";
+import { SmartHomeToolUIs, TiagoToolUIs } from "@/components/assistant-ui/tools";
 
 const ASSISTANT_ID = process.env["NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID"]!;
 
@@ -45,6 +45,7 @@ export function Assistant({ children }: { children: React.ReactNode }) {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SmartHomeToolUIs />
+      <TiagoToolUIs />
       {children}
     </AssistantRuntimeProvider>
   );

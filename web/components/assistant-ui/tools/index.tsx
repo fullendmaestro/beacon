@@ -30,15 +30,44 @@ import {
   UtcNowToolUI,
 } from "./home-scene-sensor-tool-ui";
 import {
-  GetRoverTelemetryToolUI,
-  PlanRoverRouteToolUI,
-  NavigateRoverToRoomToolUI,
-  NavigateRoverToPoseToolUI,
-  SetRoverArmPoseToolUI,
-  SetRoverGripperToolUI,
-  DriveRoverVelocityToolUI,
-  StopRoverToolUI,
-} from "./rover-tool-ui";
+  TiagoToolUIs,
+  GetTiagoTelemetryUI,
+  PlanTiagoRouteUI,
+  NavigateTiagoToRoomUI,
+  NavigateTiagoToPoseUI,
+  StopTiagoUI,
+  SetTiagoArmPoseUI,
+  SetTiagoGripperUI,
+  PickObjectUI,
+  PlaceObjectUI,
+  LookAtUI,
+  GetTiagoCameraImageUI,
+  FetchItemUI,
+  DeliverItemUI,
+  GetErrandStatusUI,
+  ListTiagoRoomsUI,
+  ListTiagoObjectsUI,
+} from "./tiago-tools-ui";
+
+export {
+  TiagoToolUIs,
+  GetTiagoTelemetryUI,
+  PlanTiagoRouteUI,
+  NavigateTiagoToRoomUI,
+  NavigateTiagoToPoseUI,
+  StopTiagoUI,
+  SetTiagoArmPoseUI,
+  SetTiagoGripperUI,
+  PickObjectUI,
+  PlaceObjectUI,
+  LookAtUI,
+  GetTiagoCameraImageUI,
+  FetchItemUI,
+  DeliverItemUI,
+  GetErrandStatusUI,
+  ListTiagoRoomsUI,
+  ListTiagoObjectsUI,
+};
 
 export function SmartHomeToolUIs() {
   return (
@@ -71,16 +100,6 @@ export function SmartHomeToolUIs() {
       <SetEnvironmentToolUI />
       <CalculatorToolUI />
       <UtcNowToolUI />
-
-      {/* Autonomous Mobile Robot (KUKA youBot) */}
-      <GetRoverTelemetryToolUI />
-      <PlanRoverRouteToolUI />
-      <NavigateRoverToRoomToolUI />
-      <NavigateRoverToPoseToolUI />
-      <SetRoverArmPoseToolUI />
-      <SetRoverGripperToolUI />
-      <DriveRoverVelocityToolUI />
-      <StopRoverToolUI />
     </>
   );
 }

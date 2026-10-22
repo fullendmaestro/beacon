@@ -6,12 +6,7 @@ from .constants import (
     ColorUtils,
 )
 from .controller_service import SmartHomeController
-from .models import (
-    LightStateUpdateRequest,
-    RoverControlRequest,
-    RoverNavigateRequest,
-    RoverPoseRequest,
-)
+from .models import LightStateUpdateRequest
 
 __all__ = [
     "CAMERA_NAMES",
@@ -19,9 +14,6 @@ __all__ = [
     "SUPPORTED_LIGHT_TYPES",
     "ColorUtils",
     "LightStateUpdateRequest",
-    "RoverControlRequest",
-    "RoverNavigateRequest",
-    "RoverPoseRequest",
     "SmartHomeController",
     "create_app",
 ]

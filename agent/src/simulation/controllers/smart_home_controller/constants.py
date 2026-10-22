@@ -87,36 +87,36 @@ APPLIANCE_DEFAULTS: dict[str, dict[str, str | float]] = {
 
 # Strictly Orthogonal Manhattan Navigation Graph (All segments are 90-degree straight lines)
 NAV_NODES: dict[str, dict[str, Any]] = {
-    # --- East-West Corridor Spine (Strictly y = -7.50) ---
+    # --- East-West Corridor Spine (Strictly y = -7.62 for radiator clearance) ---
     "front_door": {
         "name": "Front Entrance",
         "room": "Foyer",
-        "pose": [-0.91, -7.50, 0.0],
+        "pose": [-0.91, -7.62, 0.0],
     },
     "master_junction": {
         "name": "Master Bedroom Junction",
         "room": "Foyer",
-        "pose": [-2.15, -7.50, -1.5708],
+        "pose": [-2.15, -7.62, -1.5708],
     },
     "foyer": {
         "name": "Foyer Dock",
         "room": "Foyer",
-        "pose": [-3.10, -7.50, 3.1416],
+        "pose": [-3.10, -7.62, 3.1416],
     },
     "bathroom_junction": {
         "name": "Bathroom Junction",
         "room": "Corridor",
-        "pose": [-4.94, -7.50, -1.5708],
+        "pose": [-4.94, -7.62, -1.5708],
     },
     "hallway": {
         "name": "West Corridor Corner",
         "room": "Corridor",
-        "pose": [-5.35, -7.50, 1.5708],
+        "pose": [-5.35, -7.62, 1.5708],
     },
     "study_junction": {
         "name": "Study Bedroom Junction",
         "room": "Corridor",
-        "pose": [-6.24, -7.50, -1.5708],
+        "pose": [-6.24, -7.62, -1.5708],
     },
     # --- Rooms Branching Vertically Off Corridor ---
     "utility_room": {
@@ -163,26 +163,6 @@ NAV_NODES: dict[str, dict[str, Any]] = {
         "pose": [-9.20, -1.80, 3.1416],
     },
 }
-
-# Orthogonal edges: (node_a, node_b, optional_door_name)
-NAV_EDGES: list[tuple[str, str, str | None]] = [
-    # Corridor spine (y = -7.50)
-    ("front_door", "master_junction", None),
-    ("master_junction", "foyer", None),
-    ("foyer", "bathroom_junction", None),
-    ("bathroom_junction", "hallway", None),
-    ("hallway", "study_junction", None),
-    # Doorway branches off corridor
-    ("front_door", "utility_room", "Utility Closet Door"),
-    ("master_junction", "master_bedroom", "Master Bedroom Door"),
-    ("bathroom_junction", "bathroom", "Main Bathroom Door"),
-    ("study_junction", "study_bedroom", "Study Bedroom Door"),
-    # North spine into Living Room, Kitchen & Dining Room (x = -5.35)
-    ("hallway", "kitchen_approach", None),
-    ("kitchen_approach", "kitchen", "Kitchen Passage Door"),
-    ("kitchen_approach", "living_room", None),
-    ("living_room", "dining_room", None),
-]
 
 
 COLOR_NAMES_MAP: dict[str, list[float]] = {

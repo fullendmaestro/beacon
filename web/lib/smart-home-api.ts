@@ -32,22 +32,6 @@ export interface RobotDevice {
   online: boolean;
 }
 
-export interface RoverTelemetry {
-  id: string;
-  name: string;
-  status: string;
-  current_node: string;
-  current_room: string;
-  target_destination: string | null;
-  position: [number, number, number];
-  heading_rad: number;
-  arm_pose: string;
-  gripper: "grip" | "release";
-  battery_pct: number;
-  active_route_nodes: string[];
-  available_nodes: string[];
-}
-
 export interface HomeSummary {
   lights_on: number;
   total_lights: number;
@@ -66,11 +50,6 @@ export interface HomeSummary {
     current_room: string;
     target_destination: string | null;
     battery_pct?: number;
-  };
-  rover?: {
-    status: string;
-    current_room: string;
-    target_destination: string | null;
   };
 }
 
@@ -247,36 +226,6 @@ export const smartHomeApi = {
   // Motion & Daylight Sensors
   getSensors: () => request<SensorDevice[]>("/api/sensors"),
 
-  // Autonomous Mobile Robot (Beacon KUKA youBot)
-  getRover: () => request<RoverTelemetry>("/api/rover"),
-  planRoverRoute: (destination: string, start_node?: string) => {
-    const query = start_node ? `?start_node=${encodeURIComponent(start_node)}` : "";
-    return request<Record<string, unknown>>(
-      `/api/rover/plan/${encodeURIComponent(destination)}${query}`,
-    );
-  },
-  navigateRover: (destination: string) =>
-    request<RoverTelemetry>("/api/rover/navigate", {
-      method: "POST",
-      body: JSON.stringify({ destination }),
-    }),
-  gotoRoverPose: (x: number, y: number, yaw = 0.0) =>
-    request<RoverTelemetry>("/api/rover/goto_pose", {
-      method: "POST",
-      body: JSON.stringify({ x, y, yaw }),
-    }),
-  controlRover: (payload: {
-    action: "stop" | "arm" | "gripper" | "velocity";
-    arm_pose?: string;
-    gripper_state?: "grip" | "release";
-    vx?: number;
-    vy?: number;
-    omega?: number;
-  }) =>
-    request<RoverTelemetry>("/api/rover/control", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
 
   // Beacon Home Robots (PAL Robotics TIAGo)
   getRobots: () => request<RobotDevice[]>("/api/robots"),
