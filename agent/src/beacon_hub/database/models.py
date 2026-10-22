@@ -102,6 +102,19 @@ CREATE TABLE IF NOT EXISTS events_log (
     payload_json TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS event_rules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    trigger_topic TEXT NOT NULL,
+    condition_json TEXT NOT NULL DEFAULT '{}',
+    actions_json TEXT NOT NULL DEFAULT '[]',
+    agent_prompt TEXT,
+    cooldown_sec REAL NOT NULL DEFAULT 15.0,
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    last_triggered_at REAL NOT NULL DEFAULT 0.0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 COLOR_NAMES_MAP: dict[str, list[float]] = {

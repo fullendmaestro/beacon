@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .broker import get_broker
 from .database.connection import get_db
 from .fallback.virtual_physics_worker import VirtualPhysicsWorker
+from .reactor import EventReactor
 from .routers import (
     devices_router,
     floorplan_router,
@@ -21,6 +22,7 @@ from .routers import (
 )
 
 _fallback_worker: VirtualPhysicsWorker | None = None
+_event_reactor: EventReactor | None = None
 
 
 def get_fallback_worker() -> VirtualPhysicsWorker:
@@ -30,13 +32,23 @@ def get_fallback_worker() -> VirtualPhysicsWorker:
     return _fallback_worker
 
 
+def get_event_reactor() -> EventReactor:
+    global _event_reactor
+    if _event_reactor is None:
+        _event_reactor = EventReactor(db=get_db(), broker=get_broker())
+    return _event_reactor
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     worker = get_fallback_worker()
+    reactor = get_event_reactor()
     worker.start()
+    reactor.start()
     try:
         yield
     finally:
+        reactor.stop()
         await worker.stop()
 
 

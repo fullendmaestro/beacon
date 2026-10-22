@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 
-export type PanelType = "none" | "threads" | "smart-home";
+export type PanelType = "none" | "threads" | "smart-home" | "simulator";
 
 interface PanelState {
   activePanel: PanelType;

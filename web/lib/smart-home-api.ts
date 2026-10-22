@@ -143,6 +143,20 @@ export interface SensorDevice {
   translation?: number[];
 }
 
+export interface SimStimulusScenario {
+  id: string;
+  title: string;
+  description: string;
+  wbt_def: string;
+  name: string;
+  kind: "human" | "vehicle" | "environment";
+  room_id: string;
+  translation: [number, number, number];
+  sensor_id: string;
+  camera_name: string;
+  agent_prompt: string;
+}
+
 export interface RoomPolygonRecord {
   id: string;
   name: string;
@@ -402,4 +416,15 @@ export const smartHomeApi = {
       action: "head",
       target,
     }),
+
+  // Webots Event Simulator Stimuli
+  getStimuli: () => request<SimStimulusScenario[]>("/api/v2/sim/stimuli"),
+  triggerStimulus: (scenario_id: string, trigger_agent = true) =>
+    request<{ success: boolean; scenario?: SimStimulusScenario }>(
+      "/api/v2/sim/stimulus",
+      {
+        method: "POST",
+        body: JSON.stringify({ scenario_id, trigger_agent }),
+      },
+    ),
 };

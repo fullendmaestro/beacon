@@ -129,11 +129,12 @@ class EventBroker:
             for ws in dead_ui:
                 self._ui_sockets.discard(ws)
 
-        # 3. Forward commands and lifecycle events to Webots world_spawner / sim-bridge sockets
+        # 3. Forward commands, stimuli, and lifecycle events to Webots world_spawner / sim-bridge sockets
         if self._sim_bridge_sockets and (
             topic.startswith("device.lifecycle.")
             or topic.startswith("device.command.")
             or topic.startswith("robot.command.")
+            or topic.startswith("sim.stimulus.")
             or topic in ("environment.updated", "scene.triggered")
         ):
             dead_sim: list[WebSocket] = []

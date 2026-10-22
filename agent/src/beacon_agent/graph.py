@@ -9,10 +9,12 @@ import os
 import socket
 import sys
 import threading
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.mcp import MCPAdapter
@@ -112,6 +114,118 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+HUB_BASE_URL = os.getenv("SMART_HOME_HUB_URL", "http://127.0.0.1:8000").rstrip("/")
+
+
+@tool
+def inspect_camera_feed(camera_name: str, question: str = "Describe what you see in this room.") -> list[dict[str, Any]]:
+    """
+    Capture a live frame from any smart home security camera or TIAGo's head camera
+    and visually inspect the scene using multimodal vision.
+
+    Valid `camera_name` values:
+    - 'Kitchen Camera'
+    - 'Living Room Camera'
+    - 'Bedroom Camera'
+    - 'Front Door Camera'
+    - 'Driveway Camera'
+    - 'Backyard Patio Camera'
+    - 'TIAGo Camera'
+    """
+    encoded = urllib.parse.quote(camera_name.strip(), safe="")
+    try:
+        resp = httpx.get(f"{HUB_BASE_URL}/api/cameras/{encoded}/frame?format=base64", timeout=5.0)
+        resp.raise_for_status()
+        data = resp.json()
+        b64 = data["jpeg_base64"]
+        source = data.get("source", "live")
+        return [
+            {
+                "type": "text",
+                "text": (
+                    f"Captured live frame from '{camera_name}' (source={source}). "
+                    f"Stream URL: {HUB_BASE_URL}/api/cameras/{encoded}/stream. "
+                    f"User visual focus: {question}"
+                ),
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+            },
+        ]
+    except Exception as exc:  # noqa: BLE001
+        return [{"type": "text", "text": f"Failed to capture frame from '{camera_name}': {exc}"}]
+
+
+@tool
+def get_recent_home_events(limit: int = 20) -> list[dict[str, Any]]:
+    """
+    Retrieve the latest real-time events from the Beacon Event Broker
+    (sensor triggers, device commands, robot telemetry, and autonomous rule alerts).
+    """
+    resp = httpx.get(f"{HUB_BASE_URL}/api/v2/events/recent?limit={limit}", timeout=5.0)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@tool
+def list_automation_rules() -> list[dict[str, Any]]:
+    """List all active event-driven automation rules registered in the Beacon Event Broker."""
+    resp = httpx.get(f"{HUB_BASE_URL}/api/v2/events/rules", timeout=5.0)
+    resp.raise_for_status()
+    return resp.json()
+
+
+@tool
+def create_automation_rule(
+    name: str,
+    trigger_topic: str,
+    condition: dict[str, Any],
+    actions: list[dict[str, Any]],
+    agent_prompt: str | None = None,
+    cooldown_sec: float = 15.0,
+) -> dict[str, Any]:
+    """
+    Create a real-time event-driven automation rule on the Beacon Event Broker.
+
+    Example `trigger_topic`:
+    - 'sensor.telemetry.front_porch_motion_sensor'
+    - 'sensor.telemetry.living_room_motion_sensor'
+    - 'sensor.telemetry.exterior_daylight_sensor'
+    - 'device.state.door.dev_door_front_entrance'
+
+    Example `condition`:
+    - {'triggered': True} or {'state': 'Open'}
+
+    Example `actions` list items:
+    - {'type': 'device_command', 'device_id': 'dev_light_03', 'action': 'set_state', 'params': {'power_state': 'on', 'brightness': 100}}
+    - {'type': 'robot_navigate', 'destination': 'kitchen'}
+    - {'type': 'camera_alert', 'camera_name': 'Front Door Camera', 'message': 'Motion at front door!'}
+    """
+    resp = httpx.post(
+        f"{HUB_BASE_URL}/api/v2/events/rules",
+        json={
+            "name": name,
+            "trigger_topic": trigger_topic,
+            "condition": condition,
+            "actions": actions,
+            "agent_prompt": agent_prompt,
+            "cooldown_sec": cooldown_sec,
+        },
+        timeout=5.0,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+@tool
+def delete_automation_rule(rule_id: str) -> dict[str, Any]:
+    """Delete an event-driven automation rule by its `rule_id`."""
+    resp = httpx.delete(f"{HUB_BASE_URL}/api/v2/events/rules/{rule_id}", timeout=5.0)
+    resp.raise_for_status()
+    return resp.json()
+
+
 model = ChatGoogleGenerativeAI(
     model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
     vertexai=True,
@@ -155,7 +269,16 @@ def get_all_mcp_tools() -> list[BaseTool]:
 
 smarthome_tools, tiago_tools = _get_mcp_tool_sets()
 mcp_tools = [*smarthome_tools, *tiago_tools]
-tools = [calculator, utc_now, *mcp_tools]
+tools = [
+    calculator,
+    utc_now,
+    inspect_camera_feed,
+    get_recent_home_events,
+    list_automation_rules,
+    create_automation_rule,
+    delete_automation_rule,
+    *mcp_tools,
+]
 
 BEACON_SYSTEM_PROMPT = (
     "You are Beacon, an intelligent smart home orchestrator and domestic robot commander.\n"
@@ -177,6 +300,11 @@ BEACON_SYSTEM_PROMPT = (
     "   - Object Manipulation: `pick_object`, `place_object`.\n"
     "   - Head / Perception: `look_at`, `get_tiago_camera_image`.\n"
     "   - High-level Errands: `fetch_item`, `deliver_item`, `get_errand_status`.\n\n"
+    "3. **Live Camera Vision & Event-Driven Automation**:\n"
+    "   - Whenever the user asks what is happening in a room, or asks you to check a camera or what TIAGo sees, "
+    "call `inspect_camera_feed(camera_name=...)` to capture a real-time JPEG frame and analyze it visually.\n"
+    "   - Whenever the user asks to set up a reactive behavior (e.g., 'When motion is detected in the living room, "
+    "turn on the lights and send TIAGo'), call `create_automation_rule(...)` so the Beacon Event Broker executes it autonomously.\n\n"
     "**CRITICAL DEVICE IDENTIFICATION PROTOCOL**:\n"
     "Fuzzy device matching is disabled. Never guess or fabricate a `device_id` or `wbt_name` "
     "(such as passing `\"living room light\"` or `\"tv\"`). Before mutating any device state, "

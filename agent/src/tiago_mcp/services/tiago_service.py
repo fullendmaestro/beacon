@@ -106,10 +106,14 @@ def look_at(target: str) -> dict[str, Any]:
 
 
 def get_camera_image() -> dict[str, Any]:
-    """Capture a snapshot from TIAGo's head camera and return its metadata/path."""
+    """Capture a snapshot from TIAGo's head camera and return its live stream URL and status."""
+    meta = _get_hub("/api/cameras/TIAGo%20Camera/frame?format=base64")
     return {
         "status": "ok",
+        "camera_name": "TIAGo Camera",
+        "source": meta.get("source", "live") if isinstance(meta, dict) else "live",
         "stream_url": f"{HUB_API_BASE}/api/cameras/TIAGo%20Camera/stream",
+        "frame_url": f"{HUB_API_BASE}/api/cameras/TIAGo%20Camera/frame",
         "width": 640,
         "height": 480,
     }

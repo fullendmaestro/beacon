@@ -307,6 +307,86 @@ class WorldSpawnerSupervisor:
         if node:
             node.remove()
 
+    def spawn_stimulus_actor(self, payload: dict[str, Any]) -> None:
+        if not self.supervisor:
+            return
+        wbt_def = str(payload.get("wbt_def", "STIM_ACTOR"))
+        # Remove existing instance of this stimulus if already spawned
+        existing = self.supervisor.getFromDef(wbt_def)
+        if existing is not None:
+            existing.remove()
+
+        dyn_group = self.supervisor.getFromDef("DYNAMIC_DEVICES")
+        if not dyn_group:
+            return
+        children_field = dyn_group.getField("children")
+        if not children_field:
+            return
+
+        tx, ty, tz = [float(c) for c in payload.get("translation", [1.15, -7.49, 0.0])]
+        cr, cg, cb = [float(c) for c in payload.get("color", [0.15, 0.55, 0.95])]
+        actor_kind = payload.get("kind", "human")
+        label = str(payload.get("name", "Simulated Person")).replace('"', '\\"')
+
+        if actor_kind == "vehicle":
+            vrml_str = (
+                f'DEF {wbt_def} Solid {{\n'
+                f'  translation {tx} {ty} {tz}\n'
+                f'  name "{label}"\n'
+                f'  children [\n'
+                f'    Shape {{\n'
+                f'      appearance PBRAppearance {{ baseColor {cr} {cg} {cb} roughness 0.25 metalness 0.6 }}\n'
+                f'      geometry Box {{ size 1.7 2.2 0.9 }}\n'
+                f'    }}\n'
+                f'  ]\n'
+                f'  boundingObject Box {{ size 1.7 2.2 0.9 }}\n'
+                f'}}'
+            )
+        else:
+            # 3D Humanoid Avatar (Torso + Head) standing 1.75m tall with full collision bounding box
+            vrml_str = (
+                f'DEF {wbt_def} Solid {{\n'
+                f'  translation {tx} {ty} {tz}\n'
+                f'  name "{label}"\n'
+                f'  children [\n'
+                f'    Pose {{\n'
+                f'      translation 0 0 0.75\n'
+                f'      children [\n'
+                f'        Shape {{\n'
+                f'          appearance PBRAppearance {{ baseColor {cr} {cg} {cb} roughness 0.5 metalness 0.1 }}\n'
+                f'          geometry Cylinder {{ height 1.4 radius 0.24 }}\n'
+                f'        }}\n'
+                f'      ]\n'
+                f'    }}\n'
+                f'    Pose {{\n'
+                f'      translation 0 0 1.62\n'
+                f'      children [\n'
+                f'        Shape {{\n'
+                f'          appearance PBRAppearance {{ baseColor 0.94 0.82 0.72 roughness 0.6 metalness 0.0 }}\n'
+                f'          geometry Sphere {{ radius 0.16 }}\n'
+                f'        }}\n'
+                f'      ]\n'
+                f'    }}\n'
+                f'  ]\n'
+                f'  boundingObject Pose {{\n'
+                f'    translation 0 0 0.9\n'
+                f'    children [ Box {{ size 0.5 0.5 1.8 }} ]\n'
+                f'  }}\n'
+                f'}}'
+            )
+
+        children_field.importMFNodeFromString(-1, vrml_str)
+        self.spawned_defs[wbt_def] = wbt_def
+
+    def clear_stimulus_actors(self, wbt_defs: list[str]) -> None:
+        if not self.supervisor:
+            return
+        for def_name in wbt_defs:
+            node = self.supervisor.getFromDef(def_name)
+            if node is not None:
+                node.remove()
+            self.spawned_defs.pop(def_name, None)
+
     def apply_lighting_command(self, dev_id: str, action: str, params: dict[str, Any]) -> None:
         from beacon_hub.database.models import ColorUtils
 
@@ -530,6 +610,12 @@ class WorldSpawnerSupervisor:
 
             elif topic == "environment.updated":
                 self.apply_environment(payload)
+
+            elif topic == "sim.stimulus.spawn":
+                self.spawn_stimulus_actor(payload)
+
+            elif topic == "sim.stimulus.clear":
+                self.clear_stimulus_actors(payload.get("wbt_defs", []))
 
     def run(self) -> None:
         _ensure_hub_server_running()

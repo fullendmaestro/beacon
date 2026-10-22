@@ -999,6 +999,85 @@ class DatabaseManager:
             )
             self._conn.commit()
 
+    # --- Event-Driven Automation Rules & Event Feed ---
+
+    def list_event_rules(self) -> list[dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.execute("SELECT * FROM event_rules ORDER BY created_at ASC")
+            return [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "trigger_topic": r["trigger_topic"],
+                    "condition": json.loads(r["condition_json"]),
+                    "actions": json.loads(r["actions_json"]),
+                    "agent_prompt": r["agent_prompt"],
+                    "cooldown_sec": float(r["cooldown_sec"]),
+                    "enabled": bool(r["enabled"]),
+                    "last_triggered_at": float(r["last_triggered_at"]),
+                }
+                for r in cur.fetchall()
+            ]
+
+    def create_event_rule(
+        self,
+        name: str,
+        trigger_topic: str,
+        condition: dict[str, Any] | None = None,
+        actions: list[dict[str, Any]] | None = None,
+        agent_prompt: str | None = None,
+        cooldown_sec: float = 15.0,
+    ) -> dict[str, Any]:
+        rule_id = f"rule_{uuid.uuid4().hex[:6]}"
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT INTO event_rules (
+                    id, name, trigger_topic, condition_json, actions_json, agent_prompt, cooldown_sec, enabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                """,
+                (
+                    rule_id,
+                    name,
+                    trigger_topic,
+                    json.dumps(condition or {}),
+                    json.dumps(actions or []),
+                    agent_prompt,
+                    cooldown_sec,
+                ),
+            )
+            self._conn.commit()
+        return next(r for r in self.list_event_rules() if r["id"] == rule_id)
+
+    def delete_event_rule(self, rule_id: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM event_rules WHERE id = ?", (rule_id,))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def mark_rule_triggered(self, rule_id: str, ts: float) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE event_rules SET last_triggered_at = ? WHERE id = ?", (ts, rule_id)
+            )
+            self._conn.commit()
+
+    def list_recent_events(self, limit: int = 25) -> list[dict[str, Any]]:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT id, topic, payload_json, created_at FROM events_log ORDER BY id DESC LIMIT ?",
+                (limit,),
+            )
+            return [
+                {
+                    "id": r["id"],
+                    "topic": r["topic"],
+                    "payload": json.loads(r["payload_json"]),
+                    "created_at": r["created_at"],
+                }
+                for r in cur.fetchall()
+            ]
+
 
 _db_instance: DatabaseManager | None = None
 _db_init_lock = threading.Lock()

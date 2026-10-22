@@ -299,8 +299,8 @@ export const GetErrandStatusUI = makeAssistantToolUI<Record<string, never>, any>
   render: ({ result, status }) => {
     const data = parseResult(result);
     const stepPct =
-      data?.total_steps > 0
-        ? Math.round((data.current_step / data.total_steps) * 100)
+      data && data.total_steps > 0
+        ? Math.round(((data.current_step || 0) / data.total_steps) * 100)
         : 0;
     return (
       <ToolCardShell
@@ -308,7 +308,7 @@ export const GetErrandStatusUI = makeAssistantToolUI<Record<string, never>, any>
         title={`Errand Progress (${data?.errand_type || "Task"})`}
         subtitle={data?.message || "Checking errand state..."}
         badge={
-          data?.total_steps
+          data && data.total_steps
             ? `Step ${data.current_step}/${data.total_steps}`
             : data?.status || "Idle"
         }

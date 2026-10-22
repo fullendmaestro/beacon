@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from ..broker import get_broker
 from ..database.connection import get_db
@@ -330,6 +332,33 @@ async def get_cameras() -> list[dict[str, Any]]:
     return cams
 
 
+@router.get("/api/cameras/{name}/frame")
+async def camera_single_frame(name: str, format: str = Query("jpeg")) -> Response:
+    from ..main import get_fallback_worker
+
+    broker = get_broker()
+    worker = get_fallback_worker()
+
+    live_frame = broker.get_camera_frame(name)
+    if live_frame and broker.is_webots_attached:
+        frame = live_frame
+        source = "webots_live"
+    else:
+        frame = worker.render_synthetic_camera_frame(name)
+        source = "synthetic_fallback"
+
+    if format == "base64":
+        return JSONResponse({
+            "camera_name": name,
+            "source": source,
+            "mime_type": "image/jpeg",
+            "jpeg_base64": base64.b64encode(frame).decode("ascii"),
+            "stream_url": f"/api/cameras/{name}/stream",
+        })
+
+    return Response(content=frame, media_type="image/jpeg")
+
+
 @router.get("/api/cameras/{name}/stream")
 async def camera_stream(name: str) -> StreamingResponse:
     from ..main import get_fallback_worker
@@ -510,4 +539,255 @@ async def start_tiago_errand_endpoint(req: dict[str, Any]) -> dict[str, Any]:
             *route_to_source["doors_on_path_details"],
             *route_to_dest["doors_on_path_details"],
         ],
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Event Rules & History Endpoints
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/api/v2/events/recent")
+async def get_recent_events_endpoint(limit: int = Query(25, ge=1, le=100)) -> list[dict[str, Any]]:
+    return get_db().list_recent_events(limit=limit)
+
+
+@router.get("/api/v2/events/rules")
+async def list_event_rules_endpoint() -> list[dict[str, Any]]:
+    return get_db().list_event_rules()
+
+
+@router.post("/api/v2/events/rules")
+async def create_event_rule_endpoint(req: dict[str, Any]) -> dict[str, Any]:
+    rule = get_db().create_event_rule(
+        name=str(req.get("name", "Custom Rule")),
+        trigger_topic=str(req.get("trigger_topic", "sensor.telemetry.*")),
+        condition=req.get("condition", {}),
+        actions=req.get("actions", []),
+        agent_prompt=req.get("agent_prompt"),
+        cooldown_sec=float(req.get("cooldown_sec", 15.0)),
+    )
+    await get_broker().publish("event.rule.created", rule)
+    return {"success": True, "rule": rule}
+
+
+@router.delete("/api/v2/events/rules/{rule_id}")
+async def delete_event_rule_endpoint(rule_id: str) -> dict[str, Any]:
+    deleted = get_db().delete_event_rule(rule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found.")
+    await get_broker().publish("event.rule.deleted", {"rule_id": rule_id})
+    return {"success": True, "rule_id": rule_id}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Physical Simulation Stimulus Scenarios (Webots 3D Spawner & Virtual Twin)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SIM_STIMULUS_PRESETS: dict[str, dict[str, Any]] = {
+    "guest_front_door": {
+        "id": "guest_front_door",
+        "title": "Guest Arrives at Front Door",
+        "description": "Spawns a 3D guest avatar at (1.15, -7.49) directly in front of the Front Porch Motion Sensor ray and Front Door Camera.",
+        "wbt_def": "STIM_GUEST_PORCH",
+        "name": "Front Porch Visitor",
+        "kind": "human",
+        "room_id": "courtyard",
+        "translation": [1.15, -7.49, 0.0],
+        "color": [0.14, 0.65, 0.92],
+        "sensor_id": "front_porch_motion_sensor",
+        "camera_name": "Front Door Camera",
+        "auto_actions": [
+            {"device_id": "dev_light_11", "params": {"power_state": "on", "brightness": 100}},
+        ],
+        "agent_prompt": (
+            "Front Porch Motion Sensor was just triggered by a visitor at the Front Entrance Door. "
+            "Inspect 'Front Door Camera' to verify the guest and announce their arrival."
+        ),
+    },
+    "resident_living_room": {
+        "id": "resident_living_room",
+        "title": "Resident Enters Living Room",
+        "description": "Spawns a 3D resident avatar at (-4.85, -2.50) in the Living Room Motion Sensor ray and Living Room Camera FOV.",
+        "wbt_def": "STIM_RESIDENT_LIVING",
+        "name": "Resident in Living Room",
+        "kind": "human",
+        "room_id": "living_room",
+        "translation": [-4.85, -2.50, 0.0],
+        "color": [0.16, 0.78, 0.52],
+        "sensor_id": "living_room_motion_sensor",
+        "camera_name": "Living Room Camera",
+        "auto_actions": [
+            {"device_id": "dev_light_03", "params": {"power_state": "on", "brightness": 90}},
+            {"device_id": "living_room_smart_tv", "params": {"power_state": "on", "mode": "Ambient Art"}},
+        ],
+        "agent_prompt": (
+            "Living Room Motion Sensor detected the resident entering the Living Room. "
+            "Check 'Living Room Camera' and ask if they need TIAGo to bring anything from the kitchen."
+        ),
+    },
+    "vehicle_driveway": {
+        "id": "vehicle_driveway",
+        "title": "Vehicle Pulls Up to Driveway Gate",
+        "description": "Spawns a 3D vehicle at (2.10, -8.10) in front of the Driveway Gate Motion Sensor ray and Driveway Camera.",
+        "wbt_def": "STIM_VEHICLE_DRIVEWAY",
+        "name": "Arriving SUV",
+        "kind": "vehicle",
+        "room_id": "courtyard",
+        "translation": [2.10, -8.10, 0.45],
+        "color": [0.85, 0.38, 0.18],
+        "sensor_id": "driveway_gate_motion_sensor",
+        "camera_name": "Driveway Camera",
+        "auto_actions": [
+            {"device_id": "dev_light_12", "params": {"power_state": "on", "brightness": 100}},
+            {"device_id": "driveway_gate", "params": {"open_state": "open", "locked": False, "position": 100}},
+        ],
+        "agent_prompt": (
+            "Driveway Gate Motion Sensor triggered! A vehicle just pulled into the forecourt. "
+            "Inspect 'Driveway Camera' and confirm that the Driveway Gate opened safely."
+        ),
+    },
+    "intruder_hallway": {
+        "id": "intruder_hallway",
+        "title": "Motion in West Corridor",
+        "description": "Spawns a 3D figure at (-4.45, -7.50) across the Hallway Motion Sensor beam.",
+        "wbt_def": "STIM_HALLWAY_PERSON",
+        "name": "Corridor Figure",
+        "kind": "human",
+        "room_id": "corridor",
+        "translation": [-4.45, -7.50, 0.0],
+        "color": [0.92, 0.22, 0.28],
+        "sensor_id": "hallway_motion_sensor",
+        "camera_name": "TIAGo Camera",
+        "auto_actions": [
+            {"device_id": "dev_light_04", "params": {"power_state": "on", "brightness": 100}},
+            {"device_id": "dev_light_05", "params": {"power_state": "on", "brightness": 100}},
+        ],
+        "agent_prompt": (
+            "Hallway Motion Sensor detected movement in the corridor. "
+            "Use 'TIAGo Camera' or 'Front Door Camera' to inspect the hallway immediately."
+        ),
+    },
+    "sudden_nightfall": {
+        "id": "sudden_nightfall",
+        "title": "Sudden Dusk / Nightfall Drop",
+        "description": "Drops Webots SUN_LIGHT luminosity to 0.04 so the roof Exterior Daylight Sensor trips (< 300 lux).",
+        "wbt_def": "NONE",
+        "name": "Nightfall",
+        "kind": "environment",
+        "room_id": "courtyard",
+        "translation": [-3.5, -5.0, 2.6],
+        "color": [0.4, 0.4, 0.9],
+        "sensor_id": "exterior_daylight_sensor",
+        "camera_name": "Backyard Patio Camera",
+        "auto_actions": [
+            {"device_id": "dev_light_11", "params": {"power_state": "on", "brightness": 85}},
+            {"device_id": "dev_light_12", "params": {"power_state": "on", "brightness": 85}},
+            {"device_id": "dev_light_13", "params": {"power_state": "on", "brightness": 75}},
+        ],
+        "agent_prompt": (
+            "The Exterior Daylight Sensor detected nightfall (low ambient lux). "
+            "Verify exterior bollard lights are on and offer to close the blinds and lock the perimeter."
+        ),
+    },
+}
+
+
+@router.get("/api/v2/sim/stimuli")
+async def list_sim_stimuli() -> list[dict[str, Any]]:
+    return list(SIM_STIMULUS_PRESETS.values())
+
+
+@router.post("/api/v2/sim/stimulus")
+async def trigger_sim_stimulus(req: dict[str, Any]) -> dict[str, Any]:
+    db = get_db()
+    broker = get_broker()
+    scenario_id = str(req.get("scenario_id", ""))
+    trigger_agent = bool(req.get("trigger_agent", True))
+
+    if scenario_id == "clear_all":
+        all_defs = [
+            p["wbt_def"] for p in SIM_STIMULUS_PRESETS.values() if p["wbt_def"] != "NONE"
+        ]
+        await broker.publish("sim.stimulus.clear", {"wbt_defs": all_defs})
+        # Reset motion sensors in SQLite when cleared
+        for p in SIM_STIMULUS_PRESETS.values():
+            if p["kind"] != "environment":
+                s_dev = db.strict_lookup(p["sensor_id"])
+                if s_dev:
+                    rep = {"type": "MotionSensor", "state": "Clear", "value": 1000.0, "triggered": False}
+                    db.update_reported_state(s_dev["id"], rep, also_sync_desired=True)
+                    await broker.publish(
+                        f"sensor.telemetry.{s_dev['id']}",
+                        {
+                            "device_id": s_dev["id"],
+                            "wbt_name": s_dev["wbt_name"],
+                            "triggered": False,
+                            "value": 1000.0,
+                            "state": "Clear",
+                        },
+                    )
+        return {"success": True, "cleared": all_defs}
+
+    preset = SIM_STIMULUS_PRESETS.get(scenario_id)
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"Unknown stimulus scenario '{scenario_id}'")
+
+    # 1. If it's an environment event (nightfall), update Webots SUN_LIGHT
+    if preset["kind"] == "environment":
+        env = db.set_environment("night")
+        await broker.publish("environment.updated", env)
+    else:
+        # Spawn physical 3D Human/Vehicle in Webots directly in front of the DistanceSensor ray
+        await broker.publish("sim.stimulus.spawn", preset)
+
+    # 2. If Webots is not attached (or while Webots ray-cast steps in the next 250ms),
+    # ensure the sensor state & automated device reactions fire deterministically
+    sensor_dev = db.strict_lookup(preset["sensor_id"])
+    if sensor_dev:
+        is_daylight = preset["kind"] == "environment"
+        sim_val = 40.0 if is_daylight else 320.0
+        sim_state = "Low Light / Night" if is_daylight else "Motion Detected"
+        db.update_reported_state(
+            sensor_dev["id"],
+            {"triggered": True, "value": sim_val, "state": sim_state},
+            also_sync_desired=True,
+        )
+        await broker.publish(
+            f"sensor.telemetry.{sensor_dev['id']}",
+            {
+                "device_id": sensor_dev["id"],
+                "wbt_name": sensor_dev["wbt_name"],
+                "triggered": True,
+                "value": sim_val,
+                "state": sim_state,
+                "stimulus": scenario_id,
+            },
+        )
+
+    executed: list[str] = []
+    for act in preset.get("auto_actions", []):
+        target_dev = db.strict_lookup(act["device_id"])
+        if target_dev:
+            await _dispatch_device_command(target_dev, "set_state", act["params"])
+            executed.append(f"{target_dev['wbt_name']} -> {act['params']}")
+
+    alert_payload = {
+        "alert_id": f"stim_{uuid.uuid4().hex[:8]}",
+        "rule_id": scenario_id,
+        "rule_name": preset["title"],
+        "trigger_topic": f"sensor.telemetry.{preset['sensor_id']}",
+        "message": preset["description"],
+        "executed_actions": executed,
+        "camera_name": preset["camera_name"],
+        "agent_prompt": preset["agent_prompt"] if trigger_agent else None,
+        "timestamp": time.time(),
+    }
+    db.log_event("agent.event.alert", alert_payload)
+    await broker.publish("agent.event.alert", alert_payload)
+
+    return {
+        "success": True,
+        "scenario": preset,
+        "alert": alert_payload,
     }

@@ -831,4 +831,61 @@ def seed_estate_tables(conn: sqlite3.Connection) -> None:
             ("environment", json.dumps({"time_of_day": "day", "sun_luminosity": 0.85})),
         )
 
+    cur.execute("SELECT COUNT(*) FROM event_rules")
+    if cur.fetchone()[0] == 0:
+        default_rules = [
+            (
+                "rule_porch_motion",
+                "Front Porch Motion Welcome & Security Snap",
+                "sensor.telemetry.front_porch_motion_sensor",
+                json.dumps({"triggered": True}),
+                json.dumps([
+                    {
+                        "type": "device_command",
+                        "device_id": "dev_light_11",
+                        "action": "set_state",
+                        "params": {"power_state": "on", "brightness": 100},
+                    },
+                    {
+                        "type": "camera_alert",
+                        "camera_name": "Front Door Camera",
+                        "message": "Motion detected at Front Porch. Turned on Front Porch Bollard Light and captured live security feed.",
+                    },
+                ]),
+                "Motion was detected at the Front Porch sensor. Check Front Door Camera and welcome or alert the resident.",
+                20.0,
+            ),
+            (
+                "rule_dusk_exterior",
+                "Auto Night Bollard Lighting on Low Daylight",
+                "sensor.telemetry.exterior_daylight_sensor",
+                json.dumps({"triggered": True}),
+                json.dumps([
+                    {
+                        "type": "device_command",
+                        "device_id": "dev_light_11",
+                        "action": "set_state",
+                        "params": {"power_state": "on", "brightness": 80},
+                    },
+                    {
+                        "type": "device_command",
+                        "device_id": "dev_light_12",
+                        "action": "set_state",
+                        "params": {"power_state": "on", "brightness": 80},
+                    },
+                ]),
+                None,
+                60.0,
+            ),
+        ]
+        for r in default_rules:
+            cur.execute(
+                """
+                INSERT INTO event_rules (
+                    id, name, trigger_topic, condition_json, actions_json, agent_prompt, cooldown_sec, enabled
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+                """,
+                r,
+            )
+
     conn.commit()

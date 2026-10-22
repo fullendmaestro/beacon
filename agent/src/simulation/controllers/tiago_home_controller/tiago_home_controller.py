@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import heapq
 import json
 import logging
@@ -275,6 +276,8 @@ class TiagoState:
     errand_total_steps: int = 0
     errand_status: str = "idle"
     errand_message: str = ""
+    latest_jpeg_bytes: bytes = b""
+    latest_jpeg_b64: str = ""
 
 
 _state = TiagoState()
@@ -338,8 +341,15 @@ if _WEBOTS:
     _left_enc.enable(time_step)
     _right_enc.enable(time_step)
 
-    _camera = _dev("Astra rgb") or _StubCamera()
-    _camera.enable(max(time_step * 8, 128))
+    _camera = (
+        _dev("Astra rgb")
+        or _dev("camera")
+        or _dev("xtion_rgb")
+        or next((d for d in _avail_devices.values() if hasattr(d, "getImage")), None)
+        or _StubCamera()
+    )
+    if hasattr(_camera, "enable"):
+        _camera.enable(max(time_step * 4, 64))
 
     # Exact 6 arm joints for TIAGo + Robotiq 2F-85 (from official tiago_robotiq_grippers.py)
     _arm_joint_names = [
@@ -422,6 +432,36 @@ def _apply_head(target: str) -> bool:
 _odom_left_prev: float = 0.0
 _odom_right_prev: float = 0.0
 _odom_initialized: bool = False
+
+
+_last_cam_capture: float = 0.0
+
+
+def _sample_tiago_camera() -> None:
+    """Must be called on the main Webots thread inside robot.step()."""
+    global _last_cam_capture
+    if not _WEBOTS or robot is None or Image is None or not hasattr(_camera, "getImage"):
+        return
+    now = time.monotonic()
+    if now - _last_cam_capture < 0.15:  # ~6.5 FPS
+        return
+    _last_cam_capture = now
+    try:
+        raw = _camera.getImage()
+        if not raw:
+            return
+        w = int(_camera.getWidth()) if hasattr(_camera, "getWidth") else 640
+        h = int(_camera.getHeight()) if hasattr(_camera, "getHeight") else 480
+        img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="JPEG", quality=65)
+        jpeg_bytes = buf.getvalue()
+        b64_str = base64.b64encode(jpeg_bytes).decode("ascii")
+        with _state_lock:
+            _state.latest_jpeg_bytes = jpeg_bytes
+            _state.latest_jpeg_b64 = b64_str
+    except Exception:
+        pass
 
 
 def _norm_angle(a: float) -> float:
@@ -844,39 +884,25 @@ def camera_snapshot() -> JSONResponse:
 
 @app.get("/camera/frame")
 def camera_frame() -> Response:
-    try:
-        w = _camera.getWidth() if hasattr(_camera, "getWidth") else 640
-        h = _camera.getHeight() if hasattr(_camera, "getHeight") else 480
-        raw = _camera.getImage() if hasattr(_camera, "getImage") else None
-        if raw and Image is not None:
-            img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
-            buf = io.BytesIO()
-            img.convert("RGB").save(buf, format="JPEG", quality=75)
-            return Response(content=buf.getvalue(), media_type="image/jpeg")
-    except Exception:
-        pass
+    with _state_lock:
+        frame = _state.latest_jpeg_bytes
+    if frame:
+        return Response(content=frame, media_type="image/jpeg")
     return Response(status_code=503)
 
 
 @app.get("/camera/stream")
 def camera_stream() -> StreamingResponse:
     def gen():
-        w = _camera.getWidth() if hasattr(_camera, "getWidth") else 640
-        h = _camera.getHeight() if hasattr(_camera, "getHeight") else 480
         while True:
-            try:
-                raw = _camera.getImage() if hasattr(_camera, "getImage") else None
-                if raw and Image is not None:
-                    img = Image.frombytes("RGBA", (w, h), raw, "raw", "BGRA")
-                    buf = io.BytesIO()
-                    img.convert("RGB").save(buf, format="JPEG", quality=60)
-                    yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n\r\n" + buf.getvalue() + b"\r\n"
-                    )
-            except Exception:
-                pass
-            time.sleep(0.08)
+            with _state_lock:
+                frame = _state.latest_jpeg_bytes
+            if frame:
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + frame + b"\r\n"
+                )
+            time.sleep(0.12)
     return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
@@ -938,6 +964,7 @@ def _ws_bridge_thread() -> None:
             try:
                 async with websockets.connect("ws://127.0.0.1:8000/ws/sim-bridge") as ws:
                     async def _telemetry_sender() -> None:
+                        last_sent_b64 = ""
                         while True:
                             with _state_lock:
                                 msg = {
@@ -951,7 +978,7 @@ def _ws_bridge_thread() -> None:
                                         "status": (
                                             "Navigating"
                                             if _state.task == TaskState.NAVIGATING
-                                            else "Idle"
+                                             else "Idle"
                                         ),
                                         "battery": round(_state.battery, 1),
                                         "arm_pose": _state.arm_pose_name,
@@ -964,7 +991,24 @@ def _ws_bridge_thread() -> None:
                                         ],
                                     },
                                 }
+                                cam_b64 = _state.latest_jpeg_b64
+
                             await ws.send(json.dumps(msg))
+
+                            if cam_b64 and cam_b64 != last_sent_b64:
+                                last_sent_b64 = cam_b64
+                                await ws.send(
+                                    json.dumps(
+                                        {
+                                            "topic": "camera.frame",
+                                            "payload": {
+                                                "device_id": "TIAGo Camera",
+                                                "camera_name": "TIAGo Camera",
+                                                "jpeg_base64": cam_b64,
+                                            },
+                                        }
+                                    )
+                                )
                             await asyncio.sleep(0.15)
 
                     send_task = asyncio.create_task(_telemetry_sender())
@@ -1038,6 +1082,7 @@ def main() -> None:
         _last_battery_tick = time.time()
         while robot.step(time_step) != -1:
             _step_navigation()
+            _sample_tiago_camera()
             now = time.time()
             if now - _last_battery_tick > 60:
                 with _state_lock:

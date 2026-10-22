@@ -12,6 +12,18 @@ import {
   type NavEdgeRecord,
 } from "./smart-home-api";
 
+export interface BeaconEventAlert {
+  alert_id: string;
+  rule_id: string;
+  rule_name: string;
+  trigger_topic: string;
+  message: string;
+  executed_actions: string[];
+  camera_name?: string | null;
+  agent_prompt?: string | null;
+  timestamp: number;
+}
+
 interface BeaconSocketStore {
   connected: boolean;
   simMode: string;
@@ -21,6 +33,7 @@ interface BeaconSocketStore {
   navNodes: NavNodeRecord[];
   navEdges: NavEdgeRecord[];
   robot: RobotDevice | null;
+  alerts: BeaconEventAlert[];
 }
 
 const initialState: BeaconSocketStore = {
@@ -32,6 +45,7 @@ const initialState: BeaconSocketStore = {
   navNodes: [],
   navEdges: [],
   robot: null,
+  alerts: [],
 };
 
 let storeState: BeaconSocketStore = { ...initialState };
@@ -159,7 +173,15 @@ function ensureWebSocketConnected() {
             navNodes: payload.nav_nodes || storeState.navNodes,
             navEdges: payload.nav_edges || storeState.navEdges,
             robot: payload.robot || storeState.robot,
+            alerts: storeState.alerts,
           };
+          notify();
+          return;
+        }
+
+        if (topic === "agent.event.alert") {
+          const nextAlerts = [payload as BeaconEventAlert, ...storeState.alerts].slice(0, 20);
+          storeState = { ...storeState, alerts: nextAlerts };
           notify();
           return;
         }
