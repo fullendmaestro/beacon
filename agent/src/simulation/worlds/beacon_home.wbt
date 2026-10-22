@@ -234,114 +234,6 @@ DEF EXTERIOR_COURTYARD Group {
 }
 
 # ==============================================================================
-# MOTORIZED EXTERIOR ACTUATORS: DRIVEWAY GATE & GARAGE DOOR
-# ==============================================================================
-DEF DRIVEWAY_GATE Solid {
-  translation 2.1 -9.55 0.55
-  children [
-    Shape {
-      appearance BrushedAluminium {}
-      geometry Box {
-        size 3.9 0.1 1.1
-      }
-    }
-  ]
-  name "Driveway Gate"
-  boundingObject Box {
-    size 3.9 0.1 1.1
-  }
-}
-
-DEF GARAGE_DOOR Solid {
-  translation 2.1 -5.55 1.15
-  children [
-    Shape {
-      appearance PaintedWood {
-        colorOverride 0.22 0.24 0.27
-      }
-      geometry Box {
-        size 3.8 0.1 2.2
-      }
-    }
-  ]
-  name "Garage Door"
-  boundingObject Box {
-    size 3.8 0.1 2.2
-  }
-}
-
-# ==============================================================================
-# MOTORIZED WINDOW BLINDS / SHADES
-# ==============================================================================
-DEF BLIND_LIVING_WEST Solid {
-  translation -11.0 -3.48 1.25
-  children [
-    Shape {
-      appearance PBRAppearance {
-        baseColor 0.92 0.91 0.88
-        roughness 0.7
-        metalness 0.1
-      }
-      geometry Box {
-        size 0.04 2.1 2.1
-      }
-    }
-  ]
-  name "Living Room West Blind"
-}
-
-DEF BLIND_LIVING_NORTH Solid {
-  translation -8.25 -0.18 1.25
-  children [
-    Shape {
-      appearance PBRAppearance {
-        baseColor 0.92 0.91 0.88
-        roughness 0.7
-        metalness 0.1
-      }
-      geometry Box {
-        size 0.95 0.04 2.1
-      }
-    }
-  ]
-  name "Living Room North Blind"
-}
-
-DEF BLIND_MASTER_BEDROOM Solid {
-  translation -0.18 -10.87 1.25
-  children [
-    Shape {
-      appearance PBRAppearance {
-        baseColor 0.92 0.91 0.88
-        roughness 0.7
-        metalness 0.1
-      }
-      geometry Box {
-        size 0.04 0.95 2.1
-      }
-    }
-  ]
-  name "Master Bedroom Blind"
-}
-
-DEF BLIND_STUDY_BEDROOM Solid {
-  translation -7.95 -12.94 1.25
-  children [
-    Shape {
-      appearance PBRAppearance {
-        baseColor 0.92 0.91 0.88
-        roughness 0.7
-        metalness 0.1
-      }
-      geometry Box {
-        size 0.95 0.04 2.1
-      }
-    }
-  ]
-  name "Study Bedroom Blind"
-}
-
-# ==============================================================================
 # INTERIOR FLOORS & REDESIGNED ROOM SURFACES
 # ==============================================================================
 DEF FLOOR Solid {
@@ -528,33 +420,10 @@ DEF KITCHEN_BLOCK Pose {
       primaryAppearance PaintedWood { colorOverride 0.16 0.18 0.22 }
       secondaryAppearance PaintedWood { colorOverride 0.9 0.9 0.92 }
     }
-    DEF SMART_FRIDGE Fridge {
-      translation 1.8 -1.57 0
-      rotation 0 0 -1 3.14159
-      name "Smart Fridge"
-      mainColor 0.75 0.78 0.82
-    }
     Sink {
       translation 0.78 1.33 0.87
       rotation 0 0 1 4.71239
       name "Kitchen Sink"
-    }
-    DEF SMART_OVEN Oven {
-      translation -0.11 1.24 0.17
-      rotation 0 0 1 -1.5707953071795862
-      name "Smart Oven"
-    }
-    DEF SMART_MICROWAVE Oven {
-      translation 1.81 -0.46 0.89
-      rotation 0 0 1 -3.14156
-      name "Smart Microwave"
-      mainColor 0.2 0.22 0.25
-      type "microwave"
-    }
-    DEF SMART_COOKTOP HotPlate {
-      translation 1.62912 1.14971 0.86
-      rotation 0 0 -1 5.49779
-      name "Induction Cooktop"
     }
     Worktop {
       translation 1.79 0.435 0.86
@@ -599,46 +468,10 @@ StraightStairs {
   rightRail []
 }
 
-# ==============================================================================
-# SMART PLUGS, APPLIANCES & ENTERTAINMENT
-# ==============================================================================
-WallPlug {
-  translation -9.98 -0.15 0.13
-  rotation 0 0 1 -1.5707953071795862
-  name "Dining Smart Plug"
-}
-WallPlug {
-  translation -7.73 -0.15 0.13
-  rotation 0 0 1 -1.5707953071795862
-  name "Living Room Smart Plug"
-}
-WallPlug {
-  translation -3.73915 -3.21929 0.13
-  name "Kitchen Island Smart Plug"
-}
-WallPlug {
-  translation -0.149129 -6.88575 0.13
-  rotation 0 0 1 -3.1415853071795863
-  name "Foyer Smart Plug"
-}
 Laptop {
   translation -6.04682 -3.00998 0.55
   rotation 0 0 1 -1.8325953071795862
   controller "<none>"
-}
-Barbecue {
-  translation -11.7017 -5.08633 0
-  name "Smart Patio Grill"
-}
-DEF SMART_TV Television {
-  translation -4.04287 -2.45471 1.5596
-  rotation 0 0 1 3.14159
-  name "Living Room Smart TV"
-  controller "<none>"
-}
-DEF SMART_WASHER WashingMachine {
-  translation -2.00701 -5.63126 0.51
-  name "Smart Washer"
 }
 
 # ==============================================================================
@@ -792,42 +625,7 @@ BathroomSink {
 }
 
 # ==============================================================================
-# HVAC RADIATORS (6 CLIMATE ZONES)
-# ==============================================================================
-Radiator {
-  translation -4.24028 -8.71399 0.36
-  rotation 0 0 1 -1.5707953
-  name "Hallway Radiator"
-}
-Radiator {
-  translation -0.284658 -10.58667 0.36
-  rotation 0 0 1 3.14159
-  name "Master Bedroom Radiator"
-}
-Radiator {
-  translation -3.23759 -6.88139 0.36
-  rotation 0 0 1 -1.5707953
-  name "Corridor Radiator"
-  numberOfFins 20
-}
-Radiator {
-  translation -7.731898 -12.834878 0.36
-  rotation 0 0 -1 -1.5707953
-  name "Study Bedroom Radiator"
-}
-Radiator {
-  translation -8.531595 -0.282246 0.36
-  rotation 0 0 1 -1.5707953
-  name "Living Room Radiator"
-}
-Radiator {
-  translation -0.28 -1.53 0.36
-  rotation 0 0 1 3.14159
-  name "Kitchen Radiator"
-}
-
-# ==============================================================================
-# WALLS, WINDOWS & SMART MOTORIZED DOORS
+# WALLS & WINDOWS (STATIC ARCHITECTURAL SHELL)
 # ==============================================================================
 Wall {
   translation 0 -0.65 0
@@ -1036,185 +834,6 @@ Wall {
   size 0.3 0.72 2.4
 }
 
-# Smart Doors
-Door {
-  translation 0 -7.49 0
-  name "Front Entrance Door"
-  size 0.3 1 2.4
-  frameSize 0.001 0.05 0.05
-  frameAppearance BrushedAluminium {}
-}
-Door {
-  translation -3.89 -3.95 0
-  name "Kitchen Passage Door"
-  size 0.3 1 2.4
-  frameSize 0.001 0.05 0.05
-  frameAppearance BrushedAluminium {}
-}
-Door {
-  translation -2.14977 -8.43 0
-  rotation 0 0 1 -1.5707953
-  name "Master Bedroom Door"
-  size 0.3 1 2.4
-  frameSize 0.001 0.05 0.05
-  frameAppearance BrushedAluminium {}
-}
-Door {
-  translation -6.24 -8.43 0
-  rotation 0 0 1 -1.5707953
-  name "Study Bedroom Door"
-  size 0.3 1 2.4
-  jointAtLeft FALSE
-  frameSize 0.001 0.05 0.05
-  frameAppearance BrushedAluminium {}
-  doorHandle DoorLever {
-    jointAtLeft FALSE
-  }
-}
-Door {
-  translation -4.94 -8.43 0
-  rotation 0 0 1 -1.5707953
-  name "Main Bathroom Door"
-  size 0.3 1 2.4
-  frameSize 0.001 0.05 0.05
-  frameAppearance BrushedAluminium {}
-}
-Door {
-  translation -6.97 -7.24 0
-  rotation 0 0 1 3.14159
-  name "Guest Restroom Door"
-  size 0.3 1 2.4
-  frameSize 0.001 0.05 0.05
-  frameAppearance BrushedAluminium {}
-}
-Door {
-  translation -0.91 -6.6 0
-  rotation 0 0 1 1.5708
-  name "Utility Closet Door"
-  size 0.3 1 2.4
-  frameSize 0.001 0.05 0.05
-  frameAppearance BrushedAluminium {}
-}
-
-# ==============================================================================
-# INTERIOR & EXTERIOR SMART LIGHTING
-# ==============================================================================
-CeilingLight {
-  translation -1.3341 -2.47061 2.4
-  name "Kitchen Ceiling Light"
-  pointLightColor 0.98 0.92 0.8
-  pointLightIntensity 3
-  pointLightRadius 4.5
-}
-CeilingLight {
-  translation -10.1237 -1.47922 2.4
-  name "Dining Room Light"
-  pointLightIntensity 2.5
-  pointLightRadius 4.5
-}
-CeilingLight {
-  translation -7.411517 -4.344069 2.4
-  name "Living Room Main Light"
-  pointLightIntensity 3.0
-  pointLightRadius 9.0
-}
-CeilingLight {
-  translation -1.794183 -7.551592 2.4
-  name "Foyer Hallway Light"
-  pointLightColor 0.85 0.92 1.0
-  pointLightIntensity 2.5
-  pointLightRadius 4.5
-}
-CeilingLight {
-  translation -5.364183 -7.551592 2.4
-  name "West Corridor Light"
-  pointLightColor 0.85 0.92 1.0
-  pointLightIntensity 2.5
-  pointLightRadius 4.5
-}
-CeilingLight {
-  translation -7.622198 -10.602906 2.4
-  name "Study Bedroom Light"
-  pointLightIntensity 2.8
-  pointLightRadius 5.0
-}
-CeilingLight {
-  translation -1.945004 -10.56734 2.4
-  name "Master Bedroom Light"
-  pointLightColor 0.95 0.82 0.6
-  pointLightIntensity 2.8
-  pointLightRadius 5.0
-}
-CeilingLight {
-  translation 2.1 -2.8 2.38
-  name "Garage Ceiling Light"
-  pointLightColor 0.9 0.95 1.0
-  pointLightIntensity 2.5
-  pointLightRadius 6.0
-}
-FloorLight {
-  translation -4.770031 -0.496157 0
-  name "Living Room Corner Lamp"
-  pointLightColor 0.95 0.78 0.5
-  pointLightRadius 3.5
-}
-FloorLight {
-  translation -0.590395 -12.404583 0
-  name "Master Reading Lamp"
-  pointLightRadius 2.5
-}
-FloorLight {
-  translation 0.8 -8.2 0
-  name "Front Porch Bollard Light"
-  pointLightColor 1.0 0.85 0.6
-  pointLightIntensity 2.5
-  pointLightRadius 5.0
-}
-FloorLight {
-  translation 3.6 -8.8 0
-  name "Driveway Bollard Light"
-  pointLightColor 1.0 0.85 0.6
-  pointLightIntensity 2.5
-  pointLightRadius 6.0
-}
-FloorLight {
-  translation -11.5 -6.0 0
-  name "Patio Lounge Lamp"
-  pointLightColor 1.0 0.75 0.45
-  pointLightIntensity 2.0
-  pointLightRadius 5.0
-}
-CeilingSpotLight {
-  translation -7.72 -7.51 2.36
-  name "Guest Restroom Spot 1"
-  spotLightIntensity 3.0
-  spotLightRadius 3.0
-}
-CeilingSpotLight {
-  translation -8.7 -7.51 2.36
-  name "Guest Restroom Spot 2"
-  spotLightIntensity 3.0
-  spotLightRadius 3.0
-}
-CeilingSpotLight {
-  translation -4.52 -9.1 2.36
-  name "Bathroom Spot 1"
-  spotLightIntensity 3.0
-  spotLightRadius 3.0
-}
-CeilingSpotLight {
-  translation -4.52 -10.4 2.36
-  name "Bathroom Spot 2"
-  spotLightIntensity 3.0
-  spotLightRadius 3.0
-}
-CeilingSpotLight {
-  translation -4.52 -11.68 2.36
-  name "Bathroom Spot 3"
-  spotLightIntensity 3.0
-  spotLightRadius 3.0
-}
-
 DEF TREES Group {
   children [
     Cypress {
@@ -1247,109 +866,27 @@ DEF TREES Group {
 }
 
 # ==============================================================================
-# SMART HOME SUPERVISOR ROBOT (REFINED CAMERAS + MOTION & DAYLIGHT SENSORS)
+# DYNAMIC IOT DEVICE CONTAINER & WORLD SPAWNER SUPERVISOR
 # ==============================================================================
-Robot {
-  name "smart_home_controller"
-  controller "smart_home_controller"
-  supervisor TRUE
-  children [
-    # 1. Living Room Camera: NE corner of Living Room looking SW across sofas, coffee table & dining area (22 deg downward tilt)
-    Camera {
-      translation -4.2 -0.5 2.15
-      rotation -0.072 0.175 -0.982 2.38
-      name "Living Room Camera"
-      fieldOfView 1.15
-      width 640
-      height 480
-    }
-    # 2. Kitchen Camera: SE corner of Kitchen looking NW across breakfast island, fridge, sink & stove (22 deg downward tilt)
-    Camera {
-      translation -0.4 -4.6 2.15
-      rotation -0.175 0.072 0.982 2.38
-      name "Kitchen Camera"
-      fieldOfView 1.15
-      width 640
-      height 480
-    }
-    # 3. Bedroom Camera: NE corner of Master Bedroom looking SW at the bed, armchair & window (22 deg downward tilt)
-    Camera {
-      translation -0.35 -8.8 2.15
-      rotation -0.072 0.175 -0.982 2.38
-      name "Bedroom Camera"
-      fieldOfView 1.15
-      width 640
-      height 480
-    }
-    # 4. Front Door Camera: Inside Foyer looking East toward the Front Entrance Door & Hallway (20 deg downward tilt)
-    Camera {
-      translation -3.1 -7.5 2.1
-      rotation 0 1 0 0.35
-      name "Front Door Camera"
-      fieldOfView 1.1
-      width 640
-      height 480
-    }
-    # 5. Driveway Camera: Mounted above Garage Door looking South across Entrance Forecourt & Driveway Gate (22 deg downward tilt)
-    Camera {
-      translation 2.1 -5.65 2.15
-      rotation -0.138 0.138 -0.981 1.60
-      name "Driveway Camera"
-      fieldOfView 1.15
-      width 640
-      height 480
-    }
-    # 6. Backyard Patio Camera: North end of Patio looking South at the BBQ Grill & Patio Sofa Lounge (22 deg downward tilt)
-    Camera {
-      translation -11.2 -3.7 2.1
-      rotation -0.138 0.138 -0.981 1.60
-      name "Backyard Patio Camera"
-      fieldOfView 1.15
-      width 640
-      height 480
-    }
-    # Motion / Presence Distance Sensors
-    DistanceSensor {
-      translation 0.2 -7.49 1.1
-      rotation 0 0 1 0
-      name "Front Porch Motion Sensor"
-      lookupTable [ 0 0 0, 4.0 1000 0 ]
-    }
-    DistanceSensor {
-      translation -6.0 -2.5 1.2
-      rotation 0 0 1 0
-      name "Living Room Motion Sensor"
-      lookupTable [ 0 0 0, 5.0 1000 0 ]
-    }
-    DistanceSensor {
-      translation -3.5 -7.5 1.2
-      rotation 0 0 1 3.14159
-      name "Hallway Motion Sensor"
-      lookupTable [ 0 0 0, 5.0 1000 0 ]
-    }
-    DistanceSensor {
-      translation 2.1 -9.2 1.0
-      rotation 0 0 1 1.5708
-      name "Driveway Gate Motion Sensor"
-      lookupTable [ 0 0 0, 4.0 1000 0 ]
-    }
-    # Roof Ambient Daylight Sensor
-    LightSensor {
-      translation -3.5 -5.0 2.6
-      rotation 0 -1 0 1.5708
-      name "Exterior Daylight Sensor"
-    }
-  ]
+DEF DYNAMIC_DEVICES Group {
+  children []
 }
+
+DEF WORLD_SPAWNER Robot {
+  name "world_spawner"
+  controller "world_spawner"
+  supervisor TRUE
+}
+
 # ==============================================================================
-# BEACON HOUSE-ERRAND BOT (PAL ROBOTICS TIAGO)
+# BEACON HOUSE-ERRAND BOT (PAL ROBOTICS TIAGO — PURE ROBOT, NO SCENE MUTATION)
 # ==============================================================================
 DEF BEACON_TIAGO Tiago {
   translation -3.1 -7.5 0.095
   rotation 0 0 1 1.5708
   name "TIAGo"
   controller "tiago_home_controller"
-  supervisor TRUE
+  supervisor FALSE
   endEffectorSlot TiagoRobotiqGripper {
     model "2F-85"
   }

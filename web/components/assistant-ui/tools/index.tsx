@@ -28,6 +28,9 @@ import {
   SetEnvironmentToolUI,
   CalculatorToolUI,
   UtcNowToolUI,
+  GetDevicesToolUI,
+  ProvisionDeviceToolUI,
+  RemoveDeviceToolUI,
 } from "./home-scene-sensor-tool-ui";
 import {
   TiagoToolUIs,
@@ -93,6 +96,9 @@ export function SmartHomeToolUIs() {
       <SetApplianceStateToolUI />
 
       {/* Summary, Sensors, Cameras, Scenes & Utilities */}
+      <GetDevicesToolUI />
+      <ProvisionDeviceToolUI />
+      <RemoveDeviceToolUI />
       <GetHomeSummaryToolUI />
       <GetSensorsToolUI />
       <GetCamerasToolUI />

@@ -60,10 +60,14 @@ export function DeviceList({ category }: { category: SmartCategory }) {
   const [selectedCamera, setSelectedCamera] = useState<CameraDevice | null>(
     null,
   );
-  const [selectedLightId, setSelectedLightId] = useState<number | null>(null);
+  const [selectedLightId, setSelectedLightId] = useState<string | number | null>(
+    null,
+  );
   const [selectedDoorId, setSelectedDoorId] = useState<string | null>(null);
   const [selectedBlindId, setSelectedBlindId] = useState<string | null>(null);
-  const [selectedZoneId, setSelectedZoneId] = useState<number | null>(null);
+  const [selectedZoneId, setSelectedZoneId] = useState<string | number | null>(
+    null,
+  );
   const [selectedApplianceId, setSelectedApplianceId] = useState<string | null>(
     null,
   );
@@ -79,7 +83,7 @@ export function DeviceList({ category }: { category: SmartCategory }) {
 
   // --- Handlers with Optimistic Updates ---
 
-  const handleToggleLight = async (id: number) => {
+  const handleToggleLight = async (id: string | number) => {
     setLights((prev) =>
       prev.map((l) =>
         l.id === id ? { ...l, state: l.state === "On" ? "Off" : "On" } : l,
@@ -93,7 +97,7 @@ export function DeviceList({ category }: { category: SmartCategory }) {
   };
 
   const handleUpdateLight = async (
-    id: number,
+    id: string | number,
     updates: { power_state?: string; brightness?: number; color?: string },
   ) => {
     setLights((prev) =>
@@ -151,7 +155,7 @@ export function DeviceList({ category }: { category: SmartCategory }) {
   };
 
   const handleUpdateClimate = async (
-    id: number,
+    id: string | number,
     payload: {
       power_state?: "on" | "off";
       target_temp?: number;

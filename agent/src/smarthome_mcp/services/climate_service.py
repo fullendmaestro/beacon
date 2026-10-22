@@ -3,12 +3,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..util.matcher import match_device
-from .hub_client import HubConnectionError, SmartHomeHubClient
+from .hub_client import HubConnectionError, SmartHomeHubClient, strict_match, strict_not_found_error
 
 
 class ClimateService:
-    """Service layer for room radiators and HVAC thermostat zones."""
+    """Service layer for room radiators and HVAC thermostat zones (strict matching)."""
 
     def __init__(self, hub_client: SmartHomeHubClient | None = None):
         self.hub_client = hub_client or SmartHomeHubClient()
@@ -24,12 +23,9 @@ class ClimateService:
         power_state: str | None = None,
     ) -> dict[str, Any]:
         zones = await self.list_zones()
-        target = match_device(zones, identifier)
+        target = strict_match(zones, identifier)
         if not target:
-            return {
-                "success": False,
-                "error": f"Climate zone '{identifier}' was not found.",
-            }
+            return strict_not_found_error(identifier, domain="climate")
 
         if target_temp is not None and not (15.0 <= target_temp <= 30.0):
             return {
@@ -39,7 +35,7 @@ class ClimateService:
 
         try:
             updated = await self.hub_client.set_climate_state(
-                zone_id=int(target["id"]),
+                zone_id=str(target["id"]),
                 power_state=power_state,
                 target_temp=target_temp,
                 mode=mode,

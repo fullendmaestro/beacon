@@ -3,8 +3,6 @@
 import { makeAssistantToolUI } from "@assistant-ui/react";
 import {
   Bot,
-  Navigation,
-  Route,
   OctagonX,
   Hand,
   Package,
@@ -12,10 +10,22 @@ import {
   Camera,
   MapPin,
   CheckCircle2,
-  AlertTriangle,
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  PlanTiagoRouteUI,
+  NavigateTiagoToRoomUI,
+  FetchItemUI,
+  DeliverItemUI,
+} from "./tiago-route-tool-ui";
+
+export {
+  PlanTiagoRouteUI,
+  NavigateTiagoToRoomUI,
+  FetchItemUI,
+  DeliverItemUI,
+};
 
 function parseResult<T = Record<string, any>>(result: unknown): T | null {
   if (!result) return null;
@@ -160,70 +170,6 @@ export const GetTiagoTelemetryUI = makeAssistantToolUI<Record<string, never>, an
   },
 });
 
-// 2. Route Planner
-export const PlanTiagoRouteUI = makeAssistantToolUI<{ destination: string }, any>({
-  toolName: "plan_tiago_route",
-  render: ({ args, result, status }) => {
-    const data = parseResult(result);
-    const isRunning = status.type === "running";
-    const blocking = data?.blocking_doors || [];
-
-    return (
-      <ToolCardShell
-        icon={Route}
-        title={`Route Plan → ${args.destination || "..."}`}
-        subtitle={
-          data
-            ? `${data.waypoints?.length ?? 0} waypoints • ${data.distance_m ?? 0}m`
-            : "Computing orthogonal Manhattan path..."
-        }
-        badge={
-          isRunning
-            ? "Planning"
-            : blocking.length > 0
-              ? `${blocking.length} Door(s) Blocking`
-              : "Path Clear"
-        }
-        badgeVariant={blocking.length > 0 ? "amber" : "emerald"}
-        isRunning={isRunning}
-      >
-        {blocking.length > 0 && (
-          <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
-            <AlertTriangle className="size-4 shrink-0" />
-            <span>
-              Blocking doors:{" "}
-              <strong>{blocking.map((d: any) => d.name).join(", ")}</strong>
-            </span>
-          </div>
-        )}
-      </ToolCardShell>
-    );
-  },
-});
-
-// 3. Navigate to Room
-export const NavigateTiagoToRoomUI = makeAssistantToolUI<{ room: string }, any>({
-  toolName: "navigate_tiago_to_room",
-  render: ({ args, result, status }) => {
-    const data = parseResult(result);
-    const isRunning = status.type === "running";
-    return (
-      <ToolCardShell
-        icon={Navigation}
-        title={`Navigating TIAGo to ${args.room?.replace(/_/g, " ")}`}
-        subtitle={
-          data?.target
-            ? `Target: (${data.target.x}m, ${data.target.y}m)`
-            : "Dispatching navigation controller..."
-        }
-        badge={isRunning ? "In Transit" : data?.status || "Dispatched"}
-        badgeVariant="teal"
-        isRunning={isRunning}
-      />
-    );
-  },
-});
-
 // 4. Navigate to Pose
 export const NavigateTiagoToPoseUI = makeAssistantToolUI<
   { x: number; y: number; theta: number },
@@ -341,48 +287,6 @@ export const GetTiagoCameraImageUI = makeAssistantToolUI<Record<string, never>, 
             : "Orbbec Astra RGB Head Camera"
         }
         badge="Snapshot"
-        isRunning={status.type === "running"}
-      />
-    );
-  },
-});
-
-// 12. Fetch Item Errand
-export const FetchItemUI = makeAssistantToolUI<
-  { item: string; from_location: string },
-  any
->({
-  toolName: "fetch_item",
-  render: ({ args, result, status }) => {
-    const data = parseResult(result);
-    return (
-      <ToolCardShell
-        icon={Package}
-        title={`Errand: Fetch ${args.item}`}
-        subtitle={`From ${args.from_location?.replace(/_/g, " ")} → Foyer Dock`}
-        badge={data?.status || "Started"}
-        badgeVariant="teal"
-        isRunning={status.type === "running"}
-      />
-    );
-  },
-});
-
-// 13. Deliver Item Errand
-export const DeliverItemUI = makeAssistantToolUI<
-  { item: string; from_location: string; to_location: string },
-  any
->({
-  toolName: "deliver_item",
-  render: ({ args, result, status }) => {
-    const data = parseResult(result);
-    return (
-      <ToolCardShell
-        icon={Package}
-        title={`Errand: Deliver ${args.item}`}
-        subtitle={`${args.from_location?.replace(/_/g, " ")} → ${args.to_location?.replace(/_/g, " ")}`}
-        badge={data?.status || "Started"}
-        badgeVariant="teal"
         isRunning={status.type === "running"}
       />
     );

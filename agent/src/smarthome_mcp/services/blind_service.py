@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..util.matcher import match_device
-from .hub_client import HubConnectionError, SmartHomeHubClient
+from .hub_client import HubConnectionError, SmartHomeHubClient, strict_match, strict_not_found_error
 
 
 class BlindService:
-    """Service layer for motorized window roller blinds/shades."""
+    """Service layer for motorized window roller blinds/shades (strict matching)."""
 
     def __init__(self, hub_client: SmartHomeHubClient | None = None):
         self.hub_client = hub_client or SmartHomeHubClient()
@@ -23,12 +22,9 @@ class BlindService:
             }
 
         blinds = await self.list_blinds()
-        target = match_device(blinds, identifier)
+        target = strict_match(blinds, identifier)
         if not target:
-            return {
-                "success": False,
-                "error": f"Window blind '{identifier}' was not found.",
-            }
+            return strict_not_found_error(identifier, domain="blind")
 
         try:
             updated = await self.hub_client.set_blind_state(str(target["id"]), position)

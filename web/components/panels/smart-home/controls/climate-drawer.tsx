@@ -16,7 +16,7 @@ interface ClimateDrawerProps {
   container: HTMLElement | null;
   onClose: () => void;
   onUpdate: (
-    id: number,
+    id: string | number,
     payload: {
       power_state?: "on" | "off";
       target_temp?: number;

@@ -1,29 +1,15 @@
 from __future__ import annotations
 
-import threading
+import sys
+from pathlib import Path
 
-import uvicorn
-from api import create_app
-from controller_service import SmartHomeController
+_SRC_DIR = Path(__file__).resolve().parents[3]
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
-controller = SmartHomeController()
-app = create_app(controller)
+from beacon_hub.main import app, main
 
-
-def run_server() -> None:
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
-
-
-def main() -> None:
-    controller.init_devices()
-
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
-    print("Smart Home Controller running on http://127.0.0.1:8000")
-
-    while controller.supervisor.step(controller.time_step) != -1:
-        controller.step_simulation()
-
+__all__ = ["app", "main"]
 
 if __name__ == "__main__":
     main()

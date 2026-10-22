@@ -3,12 +3,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..util.matcher import match_device
-from .hub_client import HubConnectionError, SmartHomeHubClient
+from .hub_client import HubConnectionError, SmartHomeHubClient, strict_match, strict_not_found_error
 
 
 class ApplianceService:
-    """Service layer for smart kitchen appliances, TV, washer, grill, and wall plugs."""
+    """Service layer for smart kitchen appliances, TV, washer, grill, and wall plugs (strict matching)."""
 
     def __init__(self, hub_client: SmartHomeHubClient | None = None):
         self.hub_client = hub_client or SmartHomeHubClient()
@@ -23,12 +22,9 @@ class ApplianceService:
         mode: str | None = None,
     ) -> dict[str, Any]:
         appliances = await self.list_appliances()
-        target = match_device(appliances, identifier)
+        target = strict_match(appliances, identifier)
         if not target:
-            return {
-                "success": False,
-                "error": f"Appliance or smart plug '{identifier}' was not found.",
-            }
+            return strict_not_found_error(identifier, domain="appliance")
 
         try:
             updated = await self.hub_client.set_appliance_state(

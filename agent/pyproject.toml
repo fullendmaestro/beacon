@@ -31,7 +31,7 @@ dev = [
 ]
 
 [tool.uv.build-backend]
-module-name = "beacon_agent"
+module-name = ["beacon_agent", "beacon_hub", "smarthome_mcp", "tiago_mcp"]
 source-include = ["langgraph.json", ".env.example", "Makefile", "tests/**"]
 
 [tool.pyright]

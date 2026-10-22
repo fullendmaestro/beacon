@@ -21,7 +21,7 @@ run:
 	uv run langgraph dev --allow-blocking
 
 hub:
-	uv run python src/simulation/controllers/smart_home_controller/smart_home_controller.py
+	uv run python -m beacon_hub.main
 
 test:
 	uv run python -m pytest tests/unit_tests -q

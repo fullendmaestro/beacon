@@ -223,3 +223,80 @@ export const UtcNowToolUI = makeAssistantToolUI<Record<string, never>, unknown>(
     },
   },
 );
+
+export const GetDevicesToolUI = makeAssistantToolUI<
+  { domain?: string; room_id?: string },
+  unknown
+>({
+  toolName: "get_devices",
+  render: ({ args, result, status }) => {
+    const devices = parseToolResult<any[]>(result) || [];
+    const scope = [args.domain, args.room_id].filter(Boolean).join(" • ") || "All Domains";
+    return (
+      <ToolCardShell
+        title={`Strict Registry Discovery (${scope})`}
+        subtitle={`${devices.length} exact ID / wbt_name records resolved`}
+        icon={Home}
+        iconColorClass="text-teal-500"
+        status={status}
+      >
+        {Array.isArray(devices) && devices.length > 0 && (
+          <div className="flex max-h-40 flex-col gap-1 overflow-y-auto pr-1">
+            {devices.map((d) => (
+              <div
+                key={d.id}
+                className="flex items-center justify-between rounded-xl border border-border/50 bg-muted/20 px-2.5 py-1 text-[11px]"
+              >
+                <span className="font-medium text-foreground">{d.wbt_name}</span>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {d.id}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </ToolCardShell>
+    );
+  },
+});
+
+export const ProvisionDeviceToolUI = makeAssistantToolUI<
+  { wbt_name: string; domain: string; proto_type: string },
+  unknown
+>({
+  toolName: "provision_device",
+  render: ({ args, result, status }) => {
+    const data = parseToolResult<any>(result);
+    return (
+      <ToolCardShell
+        title={`Provisioned Device: ${args.wbt_name}`}
+        subtitle={`Domain: ${args.domain} • PROTO: ${args.proto_type}`}
+        icon={Sparkles}
+        iconColorClass="text-emerald-500"
+        status={status}
+        isError={data?.success === false}
+      />
+    );
+  },
+});
+
+export const RemoveDeviceToolUI = makeAssistantToolUI<
+  { identifier: string },
+  unknown
+>({
+  toolName: "remove_device",
+  render: ({ args, result, status }) => {
+    const data = parseToolResult<any>(result);
+    return (
+      <ToolCardShell
+        title={`Removed Device: ${args.identifier}`}
+        subtitle={data?.wbt_name || "Removed from SQLite & Webots scene"}
+        icon={Home}
+        iconColorClass="text-amber-500"
+        status={status}
+        isError={data?.success === false}
+      />
+    );
+  },
+});
+

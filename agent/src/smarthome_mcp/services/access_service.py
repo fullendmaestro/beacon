@@ -2,12 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..util.matcher import match_device
-from .hub_client import HubConnectionError, SmartHomeHubClient
+from .hub_client import HubConnectionError, SmartHomeHubClient, strict_match, strict_not_found_error
 
 
 class AccessService:
-    """Service layer for smart doors, locks, garage doors, and driveway gates."""
+    """Service layer for smart doors, locks, garage doors, and driveway gates (strict matching)."""
 
     def __init__(self, hub_client: SmartHomeHubClient | None = None):
         self.hub_client = hub_client or SmartHomeHubClient()
@@ -17,7 +16,7 @@ class AccessService:
 
     async def find_door(self, identifier: str) -> dict[str, Any] | None:
         doors = await self.list_doors()
-        return match_device(doors, identifier)
+        return strict_match(doors, identifier)
 
     async def set_door_open_state(
         self,
@@ -27,10 +26,7 @@ class AccessService:
     ) -> dict[str, Any]:
         target = await self.find_door(identifier)
         if not target:
-            return {
-                "success": False,
-                "error": f"Door or gate '{identifier}' was not found.",
-            }
+            return strict_not_found_error(identifier, domain="door")
 
         try:
             updated = await self.hub_client.set_door_state(
@@ -49,10 +45,7 @@ class AccessService:
     async def set_door_lock(self, identifier: str, locked: bool) -> dict[str, Any]:
         target = await self.find_door(identifier)
         if not target:
-            return {
-                "success": False,
-                "error": f"Door or lock '{identifier}' was not found.",
-            }
+            return strict_not_found_error(identifier, domain="door")
 
         try:
             updated = await self.hub_client.set_door_state(

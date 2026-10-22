@@ -17,6 +17,35 @@ class HomeService:
         except HubConnectionError as e:
             return {"success": False, "error": str(e)}
 
+    async def list_devices(
+        self, domain: str | None = None, room_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        devices = await self.hub_client.get_devices(domain=domain, room_id=room_id)
+        return [
+            {
+                "id": d["id"],
+                "wbt_name": d["wbt_name"],
+                "domain": d["domain"],
+                "proto_type": d["proto_type"],
+                "room_id": d["room_id"],
+                "translation": d["translation"],
+                "reported_state": d["reported_state"],
+            }
+            for d in devices
+        ]
+
+    async def provision_device(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return await self.hub_client.provision_device(payload)
+        except HubConnectionError as e:
+            return {"success": False, "error": str(e)}
+
+    async def remove_device(self, identifier: str) -> dict[str, Any]:
+        try:
+            return await self.hub_client.delete_device(identifier)
+        except HubConnectionError as e:
+            return {"success": False, "error": str(e)}
+
     async def list_sensors(self) -> list[dict[str, Any]]:
         return await self.hub_client.get_sensors()
 

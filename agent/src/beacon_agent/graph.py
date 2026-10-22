@@ -36,10 +36,8 @@ load_dotenv()
 
 def _ensure_smart_home_hub_running(host: str = "127.0.0.1", port: int = 8000) -> None:
     """
-    Ensure the Smart Home Hub API server is listening on `host:port`.
-    If Webots is not currently running the controller on port 8000, start the
-    standalone hub controller in a background daemon thread so the frontend
-    and MCP tools never get ERR_CONNECTION_REFUSED.
+    Ensure the standalone Beacon Core Hub Service (`beacon_hub`) is listening on `host:port`.
+    The Hub owns the SQLite WAL database, Async Event Broker, and Dual-Mode Virtual Physics Engine.
     """
     if os.getenv("DISABLE_AUTO_SMART_HOME_HUB") == "1":
         return
@@ -49,33 +47,20 @@ def _ensure_smart_home_hub_running(host: str = "127.0.0.1", port: int = 8000) ->
         if sock.connect_ex((host, port)) == 0:
             return
 
-    ctrl_dir = Path(__file__).resolve().parents[1] / "simulation" / "controllers" / "smart_home_controller"
-    if not ctrl_dir.exists():
-        return
+    src_dir = Path(__file__).resolve().parents[1]
 
     def _serve() -> None:
-        if str(ctrl_dir) not in sys.path:
-            sys.path.insert(0, str(ctrl_dir))
+        if str(src_dir) not in sys.path:
+            sys.path.insert(0, str(src_dir))
         try:
             import uvicorn
-            from api import create_app
-            from controller_service import SmartHomeController
-            from standalone_supervisor import StandaloneSupervisor
+            from beacon_hub.main import app as hub_app
 
-            controller = SmartHomeController(supervisor=StandaloneSupervisor())
-            controller.init_devices()
-            app = create_app(controller)
-
-            def _sim_loop() -> None:
-                while controller.supervisor.step(controller.time_step) != -1:
-                    controller.step_simulation()
-
-            threading.Thread(target=_sim_loop, daemon=True).start()
-            uvicorn.run(app, host=host, port=port, log_level="warning")
+            uvicorn.run(hub_app, host=host, port=port, log_level="warning")
         except Exception:  # noqa: BLE001
             pass
 
-    threading.Thread(target=_serve, daemon=True, name="beacon-standalone-hub").start()
+    threading.Thread(target=_serve, daemon=True, name="beacon-core-hub").start()
 
 
 _ensure_smart_home_hub_running()
@@ -177,6 +162,7 @@ BEACON_SYSTEM_PROMPT = (
     "You oversee a connected Webots 3D smart home staffed by a PAL Robotics TIAGo house-errand bot.\n"
     "You have real-time control and telemetry across two MCP tool suites:\n\n"
     "1. **Smart Home MCP (`smarthome_mcp`)**:\n"
+    "   - Unified Discovery & Provisioning: `get_devices`, `provision_device`, `remove_device`.\n"
     "   - Overview, Scenes & Sky: `get_home_summary`, `trigger_scene`, `set_environment`.\n"
     "   - Smart Lighting: `get_lights`, `get_light_state`, `set_power_state`, `set_brightness`, `set_color`.\n"
     "   - Doors, Locks, Garage & Driveway Gate: `get_doors`, `set_door_state`, `set_door_lock`.\n"
@@ -191,6 +177,13 @@ BEACON_SYSTEM_PROMPT = (
     "   - Object Manipulation: `pick_object`, `place_object`.\n"
     "   - Head / Perception: `look_at`, `get_tiago_camera_image`.\n"
     "   - High-level Errands: `fetch_item`, `deliver_item`, `get_errand_status`.\n\n"
+    "**CRITICAL DEVICE IDENTIFICATION PROTOCOL**:\n"
+    "Fuzzy device matching is disabled. Never guess or fabricate a `device_id` or `wbt_name` "
+    "(such as passing `\"living room light\"` or `\"tv\"`). Before mutating any device state, "
+    "if you do not already have its exact `id` or `.wbt` `name` in the current conversation context, "
+    "you MUST call the corresponding discovery tool (`get_devices`, `get_lights`, `get_doors`, "
+    "`get_blinds`, `get_climate_zones`, `get_appliances`) first, inspect the returned list, "
+    "and pass the exact `id` or `wbt_name`.\n\n"
     "**CRITICAL TIAGO NAVIGATION PROTOCOL**:\n"
     "Whenever asked to send TIAGo to a room or location:\n"
     "1. Call `plan_tiago_route(destination=...)` first to compute the waypoint path and check `blocking_doors`.\n"

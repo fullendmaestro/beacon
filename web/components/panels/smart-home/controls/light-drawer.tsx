@@ -18,7 +18,7 @@ interface LightDrawerProps {
   container: HTMLElement | null;
   onClose: () => void;
   onUpdate: (
-    id: number,
+    id: string | number,
     updates: { power_state?: string; brightness?: number; color?: string },
   ) => void;
 }

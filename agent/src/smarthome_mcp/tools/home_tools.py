@@ -13,6 +13,49 @@ def register_home_tools(
     service = home_service or HomeService()
 
     @mcp.tool()
+    async def get_devices(
+        domain: str | None = None,
+        room_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Unified device discovery tool returning exact 'id' and 'wbt_name' pairs from the SQLite registry.
+        Call this before mutating any device if you do not have its exact 'id' or 'wbt_name'.
+
+        Args:
+            domain: Optional filter ('light' | 'door' | 'blind' | 'climate' | 'appliance' | 'sensor' | 'camera').
+            room_id: Optional room filter (e.g. 'kitchen', 'living_room', 'foyer', 'master_bedroom').
+        """
+        return await service.list_devices(domain=domain, room_id=room_id)
+
+    @mcp.tool()
+    async def provision_device(
+        wbt_name: str,
+        domain: Literal["light", "door", "blind", "climate", "appliance", "sensor", "camera"],
+        proto_type: str,
+        translation: list[float],
+        room_id: str | None = None,
+        initial_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Dynamically provision and spawn a new smart home device into SQLite and the live Webots scene.
+        """
+        return await service.provision_device({
+            "wbt_name": wbt_name,
+            "domain": domain,
+            "proto_type": proto_type,
+            "room_id": room_id,
+            "translation": translation,
+            "initial_state": initial_state or {},
+        })
+
+    @mcp.tool()
+    async def remove_device(identifier: str) -> dict[str, Any]:
+        """
+        Remove a dynamically provisioned device by exact 'id' or 'wbt_name'.
+        """
+        return await service.remove_device(identifier)
+
+    @mcp.tool()
     async def get_home_summary() -> dict[str, Any]:
         """
         Get an overall status summary of the smart home, including active lights count,

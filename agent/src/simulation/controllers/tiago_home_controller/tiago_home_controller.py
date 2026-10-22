@@ -27,7 +27,7 @@ except ImportError:
 logger = logging.getLogger("tiago_home_controller")
 
 try:
-    from controller import Supervisor, Robot  # type: ignore
+    from controller import Robot  # type: ignore
     _WEBOTS = True
 except ImportError:
     _WEBOTS = False
@@ -298,8 +298,6 @@ class _StubCamera:
 
 
 _avail_devices: dict[str, Any] = {}
-_self_node: Any = None
-_door_nodes_by_name: dict[str, tuple[Any, float]] = {}
 
 
 def _dev(name: str) -> Any:
@@ -309,35 +307,13 @@ def _dev(name: str) -> Any:
 
 
 if _WEBOTS:
-    try:
-        robot = Supervisor()
-    except Exception:
-        robot = Robot()
+    robot = Robot()
 
     time_step = int(robot.getBasicTimeStep())
     for i in range(robot.getNumberOfDevices()):
         d = robot.getDeviceByIndex(i)
         if d is not None:
             _avail_devices[d.getName()] = d
-
-    # Discover Supervisor self node and Door nodes for ground-truth pose & direct door opening
-    if hasattr(robot, "getSelf"):
-        try:
-            _self_node = robot.getSelf()
-            root = robot.getRoot()
-            if root:
-                children = root.getField("children")
-                for idx in range(children.getCount()):
-                    n = children.getMFNode(idx)
-                    if n and n.getTypeName() == "Door":
-                        nf = n.getField("name")
-                        tf = n.getField("translation")
-                        if nf and tf:
-                            dname = nf.getSFString()
-                            base_z = tf.getSFVec3f()[2]
-                            _door_nodes_by_name[dname] = (n, base_z)
-        except Exception:
-            _self_node = None
 
     _left_wheel = _dev("wheel_left_joint") or _StubMotor()
     _right_wheel = _dev("wheel_right_joint") or _StubMotor()
@@ -428,20 +404,8 @@ def _apply_head(target: str) -> bool:
     return True
 
 
-def _ensure_webots_door_open(door_name: str) -> None:
-    """Directly raise any blocking interior door in the Webots scene tree."""
-    if door_name in _door_nodes_by_name:
-        node, base_z = _door_nodes_by_name[door_name]
-        tf = node.getField("translation")
-        if tf:
-            pos = list(tf.getSFVec3f())
-            if pos[2] < base_z + 2.0:
-                pos[2] = base_z + 2.25
-                tf.setSFVec3f(pos)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# Ground-Truth Pose & Orthogonal Waypoint Follower (Runs in Main Webots Thread)
+# Wheel Odometry & Orthogonal Waypoint Follower (Runs in Main Webots Thread)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _odom_left_prev: float = 0.0
@@ -454,26 +418,11 @@ def _norm_angle(a: float) -> float:
 
 
 def _update_pose() -> None:
-    """Update _state (x, y, theta) from Webots Supervisor ground-truth (or wheel odometry fallback)."""
+    """Update _state (x, y, theta) from wheel encoders (supervisor FALSE)."""
     global _odom_left_prev, _odom_right_prev, _odom_initialized
     if not _WEBOTS:
         return
 
-    # 1. Preferred: Exact 3D ground-truth pose from Webots Supervisor
-    if _self_node is not None:
-        try:
-            pos = _self_node.getPosition()
-            rot = _self_node.getOrientation()  # 3x3 row-major rotation matrix
-            yaw = math.atan2(rot[3], rot[0])
-            with _state_lock:
-                _state.x = float(pos[0])
-                _state.y = float(pos[1])
-                _state.theta = _norm_angle(yaw)
-            return
-        except Exception:
-            pass
-
-    # 2. Fallback: Wheel encoders
     left_pos = _left_enc.getValue()
     right_pos = _right_enc.getValue()
     if math.isnan(left_pos) or math.isnan(right_pos):
@@ -513,10 +462,6 @@ def _step_navigation() -> None:
     with _state_lock:
         if _state.task != TaskState.NAVIGATING or not _state.waypoint_queue:
             return
-
-        # Guarantee any doors along the active route are physically open in Webots
-        for d_name in _state.doors_to_clear:
-            _ensure_webots_door_open(d_name)
 
         tx, ty, ttheta = _state.waypoint_queue[0]
         dx = tx - _state.x
@@ -958,9 +903,85 @@ def _start_api() -> None:
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
 
 
+def _ws_bridge_thread() -> None:
+    import asyncio
+    import websockets
+
+    async def _loop() -> None:
+        while True:
+            try:
+                async with websockets.connect("ws://127.0.0.1:8000/ws/sim-bridge") as ws:
+                    async def _telemetry_sender() -> None:
+                        while True:
+                            with _state_lock:
+                                msg = {
+                                    "topic": "robot.telemetry.tiago",
+                                    "payload": {
+                                        "pose": {
+                                            "x": round(_state.x, 3),
+                                            "y": round(_state.y, 3),
+                                            "theta": round(_state.theta, 3),
+                                        },
+                                        "status": (
+                                            "Navigating"
+                                            if _state.task == TaskState.NAVIGATING
+                                            else "Idle"
+                                        ),
+                                        "battery": round(_state.battery, 1),
+                                        "arm_pose": _state.arm_pose_name,
+                                        "gripper": _state.gripper_state,
+                                        "held_object": _state.held_object,
+                                        "task": _state.task_description,
+                                        "active_route": [
+                                            {"x": wx, "y": wy, "theta": wt}
+                                            for wx, wy, wt in _state.waypoint_queue
+                                        ],
+                                    },
+                                }
+                            await ws.send(json.dumps(msg))
+                            await asyncio.sleep(0.15)
+
+                    send_task = asyncio.create_task(_telemetry_sender())
+                    try:
+                        async for raw in ws:
+                            data = json.loads(raw)
+                            if data.get("topic") == "robot.command.tiago":
+                                p = data.get("payload", {})
+                                act = p.get("action")
+                                if act == "navigate":
+                                    wps = p.get("waypoints", [])
+                                    if wps:
+                                        with _state_lock:
+                                            _state.waypoint_queue = [
+                                                (float(w["x"]), float(w["y"]), float(w.get("theta", 0.0)))
+                                                for w in wps
+                                            ]
+                                            _state.nav_phase = "unstick"
+                                            _state.task = TaskState.NAVIGATING
+                                            _state.task_description = f"navigating to {p.get('destination', 'waypoint')}"
+                                    elif p.get("room") or p.get("destination"):
+                                        _enqueue_room_nav(str(p.get("room") or p.get("destination")))
+                                elif act == "stop":
+                                    stop()
+                                elif act == "arm" and p.get("pose"):
+                                    _apply_arm_preset(str(p["pose"]))
+                                elif act == "gripper" and (p.get("state") or p.get("gripper_state")):
+                                    _apply_gripper(str(p.get("state") or p.get("gripper_state")))
+                                elif act == "head" and p.get("target"):
+                                    _apply_head(str(p["target"]))
+                    finally:
+                        send_task.cancel()
+            except Exception:
+                await asyncio.sleep(1.0)
+
+    asyncio.run(_loop())
+
+
 def main() -> None:
     api_thread = threading.Thread(target=_start_api, daemon=True, name="tiago-api")
     api_thread.start()
+    ws_thread = threading.Thread(target=_ws_bridge_thread, daemon=True, name="tiago-ws")
+    ws_thread.start()
 
     if _WEBOTS and robot is not None:
         _last_battery_tick = time.time()
