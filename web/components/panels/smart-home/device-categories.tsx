@@ -38,7 +38,9 @@ export function DeviceCategories({ onSelect }: DeviceCategoriesProps) {
       case "Robots":
         return summary.robot
           ? `${summary.robot.status} • ${summary.robot.current_room}`
-          : "1 Robot";
+          : summary.rover
+            ? `${summary.rover.status} • ${summary.rover.current_room}`
+            : "1 Robot";
       default:
         return null;
     }

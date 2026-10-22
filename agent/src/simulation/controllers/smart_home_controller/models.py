@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -42,41 +42,59 @@ class SceneTriggerRequest(BaseModel):
     )
 
 
-class HumanControlRequest(BaseModel):
-    human_id: Literal["resident", "guest"] = Field("resident", description="'resident' (Alex) or 'guest' (Sam)")
-    action: Literal["goto_location", "goto_coords", "step", "patrol_loop", "stop"] = Field(
-        "goto_location", description="Human control action"
+class RoverNavigateRequest(BaseModel):
+    destination: str = Field(..., description="Target navigation node key (e.g. 'kitchen') or 'patrol'")
+
+
+class RoverPoseRequest(BaseModel):
+    x: float = Field(..., description="Target Webots X coordinate in meters")
+    y: float = Field(..., description="Target Webots Y coordinate in meters")
+    yaw: float = Field(0.0, description="Target heading angle in radians")
+
+
+class RoverControlRequest(BaseModel):
+    action: Literal["stop", "arm", "gripper", "velocity"] = Field(..., description="Rover control action")
+    arm_pose: Literal[
+        "reset",
+        "front_floor",
+        "front_box",
+        "front_plate",
+        "back_plate_high",
+        "back_plate_low",
+        "inspect_high",
+    ] | None = Field(None, description="5-DOF arm preset pose")
+    gripper_state: Literal["grip", "release"] | None = Field(None, description="Gripper finger state")
+    vx: float | None = Field(None, ge=-0.3, le=0.3, description="Forward speed m/s")
+    vy: float | None = Field(None, ge=-0.3, le=0.3, description="Strafe left speed m/s")
+    omega: float | None = Field(None, ge=-1.0, le=1.0, description="Angular velocity rad/s")
+
+# Append to agent/src/simulation/controllers/smart_home_controller/models.py
+
+class DemoCameraFocusRequest(BaseModel):
+    mode: Literal["focus", "follow_rover"] = Field(
+        "focus", description="'focus' for static/device framing or 'follow_rover' for continuous tracking"
     )
-    location: str | None = Field(None, description="Named room/sensor location key")
-    x: float | None = Field(None, description="Target X coordinate in meters")
-    y: float | None = Field(None, description="Target Y coordinate in meters")
-    dx: float | None = Field(None, description="Step delta X in meters")
-    dy: float | None = Field(None, description="Step delta Y in meters")
-    teleport: bool | None = Field(False, description="Teleport immediately instead of walking")
+    preset: str | None = Field(
+        None,
+        description="Named preset e.g. 'overview', 'living_room_light', 'kitchen_light', 'front_door', 'rover_dock'",
+    )
+    target_type: Literal["light", "door", "blind", "rover"] | None = Field(
+        None, description="Type of device to focus on"
+    )
+    target_name: str | None = Field(
+        None, description="Device name or ID to focus on (e.g. 'Living Room Main Light')"
+    )
+    camera_position: list[float] | None = Field(None, description="Explicit [x, y, z] camera coordinates")
+    target_position: list[float] | None = Field(None, description="Explicit [x, y, z] look-at target")
+    offset: list[float] | None = Field(None, description="Optional [dx, dy, dz] offset from target")
+    duration: float = Field(1.0, ge=0.0, le=10.0, description="Smooth transition duration in seconds")
 
 
-class ObjectMoveRequest(BaseModel):
-    object_name: str = Field(..., description="Household object name (e.g. 'cup', 'bottle', 'keys')")
-    surface: str | None = Field(None, description="Named surface preset (e.g. 'kitchen_island', 'coffee_table')")
-    x: float | None = Field(None, description="Optional explicit X coordinate")
-    y: float | None = Field(None, description="Optional explicit Y coordinate")
-    z: float | None = Field(None, description="Optional explicit Z coordinate")
-
-
-class TaskCreateRequest(BaseModel):
-    title: str = Field(..., description="Short task title")
-    description: str = Field(..., description="Detailed explanation of what the AI proposes or executed")
-    category: Literal["security", "comfort", "errand", "energy", "safety"] = Field("errand")
-    mode: Literal["ambient", "hitl"] = Field("hitl")
-    trigger_source: str = Field("Beacon AI Agent")
-    room: str = Field("Living Room")
-    proposed_actions: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class TaskSettingsRequest(BaseModel):
-    ambient_enabled: bool | None = None
-    hitl_enabled: bool | None = None
-
-
-class ScenarioTriggerRequest(BaseModel):
-    scenario: str = Field(..., description="Scenario identifier e.g. 'visitor_front_door', 'driveway_arrival', 'nightfall_lockdown'")
+class DemoRecordingStartRequest(BaseModel):
+    label: str = Field("capability_demo", description="Capability label for the output MP4 filename")
+    filename: str | None = Field(None, description="Optional explicit MP4 filename")
+    width: int = Field(1920, ge=640, le=3840, description="Video width in pixels")
+    height: int = Field(1080, ge=480, le=2160, description="Video height in pixels")
+    quality: int = Field(95, ge=50, le=100, description="Video encoding quality (50-100)")
+    acceleration: int = Field(1, ge=1, le=10, description="Simulation speed multiplier")
+    caption: bool = Field(False, description="Overlay Webots simulation time caption")

@@ -7,11 +7,10 @@ from .constants import (
 )
 from .controller_service import SmartHomeController
 from .models import (
-    HumanControlRequest,
     LightStateUpdateRequest,
-    ObjectMoveRequest,
-    ScenarioTriggerRequest,
-    TaskCreateRequest,
+    RoverControlRequest,
+    RoverNavigateRequest,
+    RoverPoseRequest,
 )
 
 __all__ = [
@@ -19,11 +18,10 @@ __all__ = [
     "MAX_LIGHT_INTENSITY",
     "SUPPORTED_LIGHT_TYPES",
     "ColorUtils",
-    "HumanControlRequest",
     "LightStateUpdateRequest",
-    "ObjectMoveRequest",
-    "ScenarioTriggerRequest",
+    "RoverControlRequest",
+    "RoverNavigateRequest",
+    "RoverPoseRequest",
     "SmartHomeController",
-    "TaskCreateRequest",
     "create_app",
 ]

@@ -55,6 +55,8 @@ export function DeviceList({ category }: { category: SmartCategory }) {
     sensors,
     robots,
     setRobots,
+    rover,
+    setRover,
     isLoading,
     refresh,
   } = useCategoryDevices(category);

@@ -29,91 +29,23 @@ export interface RobotDevice {
   gripper?: "open" | "closed";
   held_object?: string;
   task_description?: string;
-  patrol_logs?: {
-    room: string;
-    timestamp: string;
-    objects_seen: string[];
-    humans_seen: string[];
-  }[];
   online: boolean;
 }
 
-export interface HumanLocationOption {
+export interface RoverTelemetry {
   id: string;
   name: string;
-  room: string;
-  pos: [number, number];
-}
-
-export interface HumanActor {
-  id: "resident" | "guest";
-  def_name: string;
-  name: string;
-  role: string;
-  position: [number, number, number];
-  heading: number;
-  speed: number;
-  status: "Standing" | "Walking";
+  status: string;
+  current_node: string;
   current_room: string;
-  waypoints: [number, number][];
-  loop: boolean;
-  available_locations: HumanLocationOption[];
-}
-
-export interface SurfaceOption {
-  id: string;
-  name: string;
-  room: string;
+  target_destination: string | null;
   position: [number, number, number];
-}
-
-export interface HouseholdObject {
-  name: string;
-  def_name: string;
-  room: string;
-  position: [number, number, number];
-  default_position: [number, number, number];
-  default_room: string;
-  available_surfaces: SurfaceOption[];
-}
-
-export interface ProposedAction {
-  type: string;
-  label?: string;
-  [key: string]: unknown;
-}
-
-export interface AiTask {
-  id: string;
-  title: string;
-  description: string;
-  category: "security" | "comfort" | "errand" | "energy" | "safety";
-  mode: "ambient" | "hitl";
-  status: "pending_approval" | "running" | "completed" | "rejected";
-  trigger_source: string;
-  room: string;
-  created_at: string;
-  executed_at: string | null;
-  proposed_actions: ProposedAction[];
-  logs: string[];
-}
-
-export interface SimEvent {
-  id: string;
-  type: string;
-  source: string;
-  message: string;
-  timestamp: string;
-  task_id?: string | null;
-}
-
-export interface TasksAndEventsResponse {
-  ambient_enabled: boolean;
-  hitl_enabled: boolean;
-  pending_hitl_count: number;
-  ambient_completed_count: number;
-  tasks: AiTask[];
-  events: SimEvent[];
+  heading_rad: number;
+  arm_pose: string;
+  gripper: "grip" | "release";
+  battery_pct: number;
+  active_route_nodes: string[];
+  available_nodes: string[];
 }
 
 export interface HomeSummary {
@@ -125,7 +57,6 @@ export interface HomeSummary {
   climate_zones: number;
   cameras_online: number;
   estimated_power_watts: number;
-  pending_tasks?: number;
   environment: {
     time_of_day: TimeOfDay;
     sun_luminosity: number;
@@ -135,7 +66,11 @@ export interface HomeSummary {
     current_room: string;
     target_destination: string | null;
     battery_pct?: number;
-    held_object?: string;
+  };
+  rover?: {
+    status: string;
+    current_room: string;
+    target_destination: string | null;
   };
 }
 
@@ -209,58 +144,23 @@ export interface SensorDevice {
   triggered: boolean;
 }
 
-export interface ConsolidatedSmartHomeState {
-  summary: HomeSummary;
-  humans: HumanActor[];
-  objects: HouseholdObject[];
-  sensors: SensorDevice[];
-  robots: RobotDevice[];
-  tasks: TasksAndEventsResponse;
-  cameras: CameraDevice[];
-}
-
-const inflightGetRequests = new Map<string, Promise<unknown>>();
-
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const isGet = !options?.method || options.method.toUpperCase() === "GET";
-  if (isGet) {
-    const existing = inflightGetRequests.get(path);
-    if (existing) {
-      return existing as Promise<T>;
-    }
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options?.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Smart Home API error (${res.status}): ${path}`);
   }
-
-  const promise = (async () => {
-    const res = await fetch(`${BASE_URL}${path}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options?.headers || {}),
-      },
-    });
-    if (!res.ok) {
-      throw new Error(`Smart Home API error (${res.status}): ${path}`);
-    }
-    return res.json() as Promise<T>;
-  })();
-
-  if (isGet) {
-    inflightGetRequests.set(path, promise);
-    promise.finally(() => {
-      inflightGetRequests.delete(path);
-    });
-  }
-
-  return promise;
+  return res.json() as Promise<T>;
 }
 
 export const smartHomeApi = {
   getStreamUrl: (cameraName: string) =>
     `${BASE_URL}/api/cameras/${encodeURIComponent(cameraName)}/stream`,
-
-  getConfig: () => request<Record<string, unknown>>("/api/config"),
-
-  getConsolidatedState: () => request<ConsolidatedSmartHomeState>("/api/state"),
 
   getSummary: () => request<HomeSummary>("/api/home/summary"),
 
@@ -346,39 +246,49 @@ export const smartHomeApi = {
 
   // Motion & Daylight Sensors
   getSensors: () => request<SensorDevice[]>("/api/sensors"),
-  triggerSensor: (sensorId: string) =>
-    request<{ status: string; sensor_id: string }>(
-      `/api/sensors/${encodeURIComponent(sensorId)}/trigger`,
-      { method: "POST" },
-    ),
+
+  // Autonomous Mobile Robot (Beacon KUKA youBot)
+  getRover: () => request<RoverTelemetry>("/api/rover"),
+  planRoverRoute: (destination: string, start_node?: string) => {
+    const query = start_node ? `?start_node=${encodeURIComponent(start_node)}` : "";
+    return request<Record<string, unknown>>(
+      `/api/rover/plan/${encodeURIComponent(destination)}${query}`,
+    );
+  },
+  navigateRover: (destination: string) =>
+    request<RoverTelemetry>("/api/rover/navigate", {
+      method: "POST",
+      body: JSON.stringify({ destination }),
+    }),
+  gotoRoverPose: (x: number, y: number, yaw = 0.0) =>
+    request<RoverTelemetry>("/api/rover/goto_pose", {
+      method: "POST",
+      body: JSON.stringify({ x, y, yaw }),
+    }),
+  controlRover: (payload: {
+    action: "stop" | "arm" | "gripper" | "velocity";
+    arm_pose?: string;
+    gripper_state?: "grip" | "release";
+    vx?: number;
+    vy?: number;
+    omega?: number;
+  }) =>
+    request<RoverTelemetry>("/api/rover/control", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 
   // Beacon Home Robots (PAL Robotics TIAGo)
   getRobots: () => request<RobotDevice[]>("/api/robots"),
   controlRobot: (payload: {
     robot_id?: string;
-    action:
-      | "navigate"
-      | "stop"
-      | "arm"
-      | "gripper"
-      | "head"
-      | "pick"
-      | "place"
-      | "patrol"
-      | "fetch"
-      | "deliver";
+    action: "navigate" | "stop" | "arm" | "gripper" | "head";
     destination?: string;
     pose?: string;
     gripper_state?: "open" | "closed";
     target?: string;
-    object?: string;
-    location?: string;
-    rooms?: string[];
-    item?: string;
-    from_location?: string;
-    to_location?: string;
   }) =>
-    request<{ success?: boolean; status?: string } | RobotDevice>(
+    request<{ success: boolean; status?: string } | RobotDevice>(
       "/api/robots",
       {
         method: "POST",
@@ -414,94 +324,4 @@ export const smartHomeApi = {
       action: "head",
       target,
     }),
-  pickRobotObject: (object: string) =>
-    smartHomeApi.controlRobot({
-      action: "pick",
-      object,
-    }),
-  placeRobotObject: (location: string) =>
-    smartHomeApi.controlRobot({
-      action: "place",
-      location,
-    }),
-  patrolRobot: (rooms?: string[]) =>
-    smartHomeApi.controlRobot({
-      action: "patrol",
-      rooms,
-    }),
-
-  // Humans (Pedestrian PROTO Actors)
-  getHumans: () => request<HumanActor[]>("/api/humans"),
-  controlHuman: (payload: {
-    human_id: "resident" | "guest";
-    action: "goto_location" | "goto_coords" | "step" | "patrol_loop" | "stop";
-    location?: string;
-    x?: number;
-    y?: number;
-    dx?: number;
-    dy?: number;
-    teleport?: boolean;
-  }) =>
-    request<HumanActor>("/api/humans/control", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-
-  // Physical Graspable 3D Household Objects
-  getObjects: () => request<HouseholdObject[]>("/api/objects"),
-  moveObject: (payload: {
-    object_name: string;
-    surface?: string;
-    x?: number;
-    y?: number;
-    z?: number;
-  }) =>
-    request<HouseholdObject>("/api/objects/move", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  resetObjects: () =>
-    request<HouseholdObject[]>("/api/objects/reset", {
-      method: "POST",
-    }),
-
-  // Ambient & Human-in-the-Loop (HITL) AI Tasks & Events
-  getTasks: () => request<TasksAndEventsResponse>("/api/tasks"),
-  createTask: (payload: {
-    title: string;
-    description: string;
-    category?: "security" | "comfort" | "errand" | "energy" | "safety";
-    mode?: "ambient" | "hitl";
-    trigger_source?: string;
-    room?: string;
-    proposed_actions?: ProposedAction[];
-  }) =>
-    request<AiTask>("/api/tasks", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  approveTask: (taskId: string) =>
-    request<AiTask>(`/api/tasks/${encodeURIComponent(taskId)}/approve`, {
-      method: "POST",
-    }),
-  rejectTask: (taskId: string) =>
-    request<AiTask>(`/api/tasks/${encodeURIComponent(taskId)}/reject`, {
-      method: "POST",
-    }),
-  updateTaskSettings: (payload: {
-    ambient_enabled?: boolean;
-    hitl_enabled?: boolean;
-  }) =>
-    request<TasksAndEventsResponse>("/api/tasks/settings", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }),
-  triggerScenario: (scenario: string) =>
-    request<{ status: string; scenario: string; message: string }>(
-      "/api/events/trigger",
-      {
-        method: "POST",
-        body: JSON.stringify({ scenario }),
-      },
-    ),
 };

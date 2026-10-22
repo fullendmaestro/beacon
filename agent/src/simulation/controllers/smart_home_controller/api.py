@@ -12,19 +12,19 @@ from models import (
     ClimateUpdateRequest,
     DoorUpdateRequest,
     EnvironmentUpdateRequest,
-    HumanControlRequest,
     LightStateUpdateRequest,
-    ObjectMoveRequest,
-    ScenarioTriggerRequest,
+    RoverControlRequest,
+    RoverNavigateRequest,
+    RoverPoseRequest,
     SceneTriggerRequest,
-    TaskCreateRequest,
-    TaskSettingsRequest,
+    DemoCameraFocusRequest,
+    DemoRecordingStartRequest,
 )
 
 
 def create_app(controller: SmartHomeController) -> FastAPI:
-    """Create and configure the FastAPI app for the Smart Home Hub, Humans, Objects & AI Tasks."""
-    app = FastAPI(title="Beacon Simulated Smart Home Hub Controller", version="3.0.0")
+    """Create and configure the FastAPI app for the Smart Home Hub & Rover Supervisor."""
+    app = FastAPI(title="Beacon Simulated Smart Home Hub Controller", version="2.1.0")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -32,15 +32,7 @@ def create_app(controller: SmartHomeController) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # --- Home Overview, Shared Config & Automation Scenes ---
-
-    @app.get("/api/config")
-    def get_shared_config() -> dict[str, Any]:
-        return controller.get_config()
-
-    @app.get("/api/state")
-    def get_consolidated_state() -> dict[str, Any]:
-        return controller.get_consolidated_state()
+    # --- Home Overview & Automation Scenes ---
 
     @app.get("/api/home/summary")
     def get_home_summary() -> dict[str, Any]:
@@ -137,10 +129,6 @@ def create_app(controller: SmartHomeController) -> FastAPI:
     def get_sensors() -> list[dict[str, Any]]:
         return controller.list_sensors()
 
-    @app.post("/api/sensors/{sensor_id}/trigger")
-    def trigger_sensor(sensor_id: str) -> dict[str, Any]:
-        return controller.request_pulse_sensor(sensor_id)
-
     # --- Security Cameras ---
 
     @app.get("/api/cameras")
@@ -154,6 +142,28 @@ def create_app(controller: SmartHomeController) -> FastAPI:
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
 
+    # --- Autonomous Mobile Robot (Beacon KUKA youBot) ---
+
+    @app.get("/api/rover")
+    def get_rover() -> dict[str, Any]:
+        return controller.get_rover_state()
+
+    @app.get("/api/rover/plan/{destination}")
+    def plan_rover_route(destination: str, start_node: str | None = None) -> dict[str, Any]:
+        return controller.request_rover_route_plan(destination, start_node)
+
+    @app.post("/api/rover/navigate")
+    def navigate_rover(req: RoverNavigateRequest) -> dict[str, Any]:
+        return controller.request_rover_navigation(req.destination)
+
+    @app.post("/api/rover/goto_pose")
+    def goto_rover_pose(req: RoverPoseRequest) -> dict[str, Any]:
+        return controller.request_rover_pose(req.x, req.y, req.yaw)
+
+    @app.post("/api/rover/control")
+    def control_rover(req: RoverControlRequest) -> dict[str, Any]:
+        return controller.request_rover_control(req.model_dump(exclude_none=True))
+
     # --- Beacon Home Robots (PAL Robotics TIAGo) ---
 
     @app.get("/api/robots")
@@ -163,64 +173,23 @@ def create_app(controller: SmartHomeController) -> FastAPI:
     @app.post("/api/robots")
     def control_robot_endpoint(req: dict[str, Any]) -> dict[str, Any]:
         return controller.request_robot_action(req)
+    
+    # --- Demo Cinematography & Video Recording ---
 
-    # --- Pedestrian Human Residents & Visitors ---
+    @app.get("/api/demo/status")
+    def get_demo_status() -> dict[str, Any]:
+        return controller.get_demo_status()
 
-    @app.get("/api/humans")
-    def get_humans() -> list[dict[str, Any]]:
-        return controller.list_humans()
+    @app.post("/api/demo/camera/focus")
+    def focus_demo_camera(req: DemoCameraFocusRequest) -> dict[str, Any]:
+        return controller.request_camera_focus(req.model_dump(exclude_none=True))
 
-    @app.post("/api/humans/control")
-    def control_human(req: HumanControlRequest) -> dict[str, Any]:
-        return controller.request_human_control(req.model_dump(exclude_none=True))
+    @app.post("/api/demo/recording/start")
+    def start_demo_recording(req: DemoRecordingStartRequest) -> dict[str, Any]:
+        return controller.request_recording_start(req.model_dump(exclude_none=True))
 
-    # --- Graspable 3D Household Objects ---
-
-    @app.get("/api/objects")
-    def get_objects() -> list[dict[str, Any]]:
-        return controller.list_objects()
-
-    @app.post("/api/objects/move")
-    def move_object(req: ObjectMoveRequest) -> dict[str, Any]:
-        return controller.request_object_move(
-            object_name=req.object_name,
-            surface=req.surface,
-            x=req.x,
-            y=req.y,
-            z=req.z,
-        )
-
-    @app.post("/api/objects/reset")
-    def reset_objects() -> list[dict[str, Any]]:
-        return controller.request_objects_reset()
-
-    # --- Ambient & Human-in-the-Loop (HITL) AI Tasks & Events ---
-
-    @app.get("/api/tasks")
-    def get_tasks_and_events() -> dict[str, Any]:
-        return controller.get_tasks_and_events()
-
-    @app.post("/api/tasks")
-    def create_task(req: TaskCreateRequest) -> dict[str, Any]:
-        return controller.request_create_task(req.model_dump())
-
-    @app.post("/api/tasks/{task_id}/approve")
-    def approve_task(task_id: str) -> dict[str, Any]:
-        return controller.request_approve_task(task_id)
-
-    @app.post("/api/tasks/{task_id}/reject")
-    def reject_task(task_id: str) -> dict[str, Any]:
-        return controller.request_reject_task(task_id)
-
-    @app.post("/api/tasks/settings")
-    def update_task_settings(req: TaskSettingsRequest) -> dict[str, Any]:
-        return controller.request_task_settings(
-            ambient_enabled=req.ambient_enabled,
-            hitl_enabled=req.hitl_enabled,
-        )
-
-    @app.post("/api/events/trigger")
-    def trigger_scenario(req: ScenarioTriggerRequest) -> dict[str, Any]:
-        return controller.request_trigger_scenario(req.scenario)
+    @app.post("/api/demo/recording/stop")
+    def stop_demo_recording() -> dict[str, Any]:
+        return controller.request_recording_stop()
 
     return app

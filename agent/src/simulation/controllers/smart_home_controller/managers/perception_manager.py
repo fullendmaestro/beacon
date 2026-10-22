@@ -6,7 +6,7 @@ import urllib.request
 from collections.abc import Generator
 from typing import Any, cast
 
-from constants import CAMERA_NAMES, LIGHT_SENSOR_NAMES, MOTION_SENSOR_NAMES, TIAGO_API_URL
+from constants import CAMERA_NAMES, LIGHT_SENSOR_NAMES, MOTION_SENSOR_NAMES
 try:
     from controller import Camera, DistanceSensor, LightSensor
 except ImportError:
@@ -21,7 +21,6 @@ class PerceptionManager:
 
     def __init__(self) -> None:
         self.cameras: dict[str, Camera] = {}
-        self.camera_dims: dict[str, tuple[int, int]] = {}
         self.camera_frames: dict[str, bytes | None] = {}
         self.stream_subscribers: dict[str, int] = {}
         self._last_cam_step: float = 0.0
@@ -38,9 +37,6 @@ class PerceptionManager:
                 cam = cast(Camera, device)
                 cam.enable(cam_period)
                 self.cameras[name] = cam
-                w = int(cam.getWidth()) if hasattr(cam, "getWidth") else 640
-                h = int(cam.getHeight()) if hasattr(cam, "getHeight") else 480
-                self.camera_dims[name] = (w, h)
                 self.camera_frames[name] = None
                 self.stream_subscribers[name] = 0
 
@@ -111,10 +107,10 @@ class PerceptionManager:
                 "id": name,
                 "name": name,
                 "state": "Online",
-                "metadata": f"Live • {self.camera_dims.get(name, (640, 480))[0]}x{self.camera_dims.get(name, (640, 480))[1]}",
+                "metadata": f"Live • {cam.getWidth()}x{cam.getHeight()}",
                 "type": "Camera",
             }
-            for name in self.cameras
+            for name, cam in self.cameras.items()
         ]
         cams.append({
             "id": "TIAGo Camera",
@@ -128,7 +124,7 @@ class PerceptionManager:
     def stream_camera(self, name: str) -> Generator[bytes]:
         if name in ("TIAGo Camera", "tiago_camera", "TIAGo Head Camera", "Astra rgb"):
             try:
-                req = urllib.request.Request(f"{TIAGO_API_URL}/camera/stream")
+                req = urllib.request.Request("http://127.0.0.1:8001/camera/stream")
                 with urllib.request.urlopen(req, timeout=15.0) as resp:
                     while True:
                         chunk = resp.read(4096)
@@ -142,7 +138,7 @@ class PerceptionManager:
             # Fallback frame polling
             for _ in range(50):
                 try:
-                    req = urllib.request.Request(f"{TIAGO_API_URL}/camera/frame")
+                    req = urllib.request.Request("http://127.0.0.1:8001/camera/frame")
                     with urllib.request.urlopen(req, timeout=1.0) as resp:
                         frame = resp.read()
                         yield (
@@ -154,9 +150,11 @@ class PerceptionManager:
                 time.sleep(0.1)
             return
 
-        if name not in self.cameras:
+        cam = self.cameras.get(name)
+        if not cam:
             return
-        width, height = self.camera_dims.get(name, (640, 480))
+        width = cam.getWidth()
+        height = cam.getHeight()
 
         self.stream_subscribers[name] = self.stream_subscribers.get(name, 0) + 1
         try:

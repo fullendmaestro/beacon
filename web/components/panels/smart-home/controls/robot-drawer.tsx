@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Bot,
   Camera,
@@ -28,7 +28,6 @@ import {
   TIAGO_ROOMS,
   TIAGO_ARM_PRESETS,
   TIAGO_HEAD_TARGETS,
-  DEFAULT_HOUSEHOLD_OBJECTS,
 } from "../constants";
 import { smartHomeApi, type RobotDevice } from "@/lib/smart-home-api";
 
@@ -54,25 +53,6 @@ export function RobotDrawer({
   onSetHead,
 }: RobotDrawerProps) {
   const [activeActionMsg, setActiveActionMsg] = useState<string | null>(null);
-  const [objectNames, setObjectNames] = useState<string[]>(DEFAULT_HOUSEHOLD_OBJECTS);
-
-  useEffect(() => {
-    if (!robot) return;
-    let mounted = true;
-    smartHomeApi
-      .getObjects()
-      .then((objs) => {
-        if (mounted && Array.isArray(objs) && objs.length > 0) {
-          setObjectNames(objs.map((o) => o.name));
-        }
-      })
-      .catch(() => {
-        // Keep fallback catalogue of all 10 household objects
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [robot]);
 
   const showActionFeedback = (msg: string) => {
     setActiveActionMsg(msg);
@@ -199,33 +179,19 @@ export function RobotDrawer({
                 )}
               </div>
 
-              {/* Emergency Stop & Security Patrol Buttons */}
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-10 gap-2 rounded-2xl border-teal-500/40 bg-teal-500/10 text-xs font-semibold text-teal-500 transition-colors hover:bg-teal-500/20"
-                  onClick={async () => {
-                    showActionFeedback("Starting multi-room security patrol...");
-                    await smartHomeApi.patrolRobot();
-                  }}
-                >
-                  <RotateCcw className="size-4" />
-                  Security Patrol
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-10 gap-2 rounded-2xl border-red-500/40 bg-red-500/10 text-xs font-semibold text-red-500 transition-colors hover:bg-red-500/20"
-                  onClick={async () => {
-                    showActionFeedback("Halting robot...");
-                    await onStop();
-                  }}
-                >
-                  <OctagonX className="size-4" />
-                  Emergency Stop
-                </Button>
-              </div>
+              {/* Emergency Stop Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10 w-full gap-2 rounded-2xl border-red-500/40 bg-red-500/10 text-xs font-semibold text-red-500 transition-colors hover:bg-red-500/20"
+                onClick={async () => {
+                  showActionFeedback("Halting robot...");
+                  await onStop();
+                }}
+              >
+                <OctagonX className="size-4" />
+                Halt All Operations / Emergency Stop
+              </Button>
 
               {/* 1. Autonomous Room Navigation */}
               <div className="flex flex-col gap-2.5 border-t border-border/50 pt-4">
@@ -336,45 +302,6 @@ export function RobotDrawer({
                     <Hand className="size-4 rotate-180" />
                     Close (Grasp)
                   </Button>
-                </div>
-
-                {/* Quick Supervisor Magnetic Grasp Pick / Place */}
-                <div className="mt-1 flex flex-col gap-1.5 rounded-xl border border-border/50 bg-muted/20 p-2.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Supervisor Magnetic Grasp (Quick Pick)
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {objectNames.map((obj) => (
-                      <Button
-                        key={obj}
-                        variant={robot.held_object === obj ? "default" : "outline"}
-                        size="sm"
-                        className={cn(
-                          "h-7 rounded-lg px-2.5 text-[11px] capitalize",
-                          robot.held_object === obj && "bg-teal-600 text-white",
-                        )}
-                        onClick={async () => {
-                          showActionFeedback(`Magnetic grasping ${obj}...`);
-                          await smartHomeApi.pickRobotObject(obj);
-                        }}
-                      >
-                        {obj.replace("_", " ")}
-                      </Button>
-                    ))}
-                    {robot.held_object && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 rounded-lg px-2.5 text-[11px] font-semibold text-amber-500"
-                        onClick={async () => {
-                          showActionFeedback(`Placing ${robot.held_object} in ${robot.current_room}...`);
-                          await smartHomeApi.placeRobotObject(robot.current_node || "living_room");
-                        }}
-                      >
-                        Place Here
-                      </Button>
-                    )}
-                  </div>
                 </div>
               </div>
 

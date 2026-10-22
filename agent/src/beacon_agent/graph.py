@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import atexit
-from contextlib import AsyncExitStack
 import operator
 import os
 import socket
@@ -129,132 +127,24 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _create_chat_model(temperature: float = 0.2) -> Any:
-    """
-    Create the primary chat model for Beacon.
-    Supports Amazon Bedrock (e.g. Amazon Nova Pro / Claude for Amazon App Dev 2026 Alexa+ Track)
-    as well as Google Gemini (API Key or Vertex AI without hardcoded project IDs).
-    """
-    provider = os.getenv("BEACON_LLM_PROVIDER", "").strip().lower()
-    if provider in ("bedrock", "aws", "alexa+") or os.getenv("BEDROCK_MODEL_ID"):
-        try:
-            from langchain_aws import ChatBedrockConverse  # type: ignore[import-not-found]
-
-            return ChatBedrockConverse(
-                model=os.getenv("BEDROCK_MODEL_ID", os.getenv("BEACON_AGENT_MODEL", "us.amazon.nova-pro-v1:0")),
-                region_name=os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
-                temperature=temperature,
-            )
-        except ImportError:
-            pass
-
-    model_name = os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash")
-    gcp_project = os.getenv("GOOGLE_CLOUD_PROJECT")
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-
-    if gcp_project:
-        return ChatGoogleGenerativeAI(
-            model=model_name,
-            vertexai=True,
-            project=gcp_project,
-            location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
-            temperature=temperature,
-        )
-    if api_key:
-        return ChatGoogleGenerativeAI(
-            model=model_name,
-            google_api_key=api_key,
-            temperature=temperature,
-        )
-    return ChatGoogleGenerativeAI(
-        model=model_name,
-        vertexai=True,
-        location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
-        temperature=temperature,
-    )
-
-
-model = _create_chat_model(temperature=0.2)
-
-_LOOP_MCP_SESSIONS: dict[tuple[int, int], tuple[AsyncExitStack, dict[str, BaseTool]]] = {}
-
-
-async def _get_live_tool_for_loop(server: Any, tool_name: str) -> BaseTool:
-    """Maintain an active MCPAdapter session bound to the current event loop so transport never closes prematurely."""
-    loop = asyncio.get_running_loop()
-    key = (id(loop), id(server))
-    entry = _LOOP_MCP_SESSIONS.get(key)
-    if entry is None:
-        stack = AsyncExitStack()
-        adapter = await stack.enter_async_context(MCPAdapter(server))
-        live_tools = await adapter.list_tools()
-        tool_map = {t.name: t for t in live_tools}
-        _LOOP_MCP_SESSIONS[key] = (stack, tool_map)
-        entry = (stack, tool_map)
-    return entry[1][tool_name]
-
-
-def _bind_resilient_mcp_tool(mcp_tool: BaseTool, server: Any) -> BaseTool:
-    """Wrap an MCPAdapter tool so invocations always execute on an active MCPAdapter session in the caller's loop."""
-    tool_name = mcp_tool.name
-
-    async def _resilient_coro(**kwargs: Any) -> Any:
-        try:
-            live_tool = await _get_live_tool_for_loop(server, tool_name)
-            coro = getattr(live_tool, "coroutine", None)
-            if coro is not None:
-                return await coro(**kwargs)
-            return await live_tool.ainvoke(kwargs)
-        except Exception:
-            # Re-open a fresh session if the cached session was invalidated
-            loop = asyncio.get_running_loop()
-            _LOOP_MCP_SESSIONS.pop((id(loop), id(server)), None)
-            async with MCPAdapter(server) as fresh_adapter:
-                fresh_tools = await fresh_adapter.list_tools()
-                for ft in fresh_tools:
-                    if ft.name == tool_name:
-                        f_coro = getattr(ft, "coroutine", None)
-                        if f_coro is not None:
-                            return await f_coro(**kwargs)
-                        return await ft.ainvoke(kwargs)
-            raise
-
-    def _resilient_sync(**kwargs: Any) -> Any:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop and loop.is_running():
-            import nest_asyncio
-
-            nest_asyncio.apply()
-        return asyncio.run(_resilient_coro(**kwargs))
-
-    if hasattr(mcp_tool, "coroutine"):
-        object.__setattr__(mcp_tool, "coroutine", _resilient_coro)
-    if hasattr(mcp_tool, "func"):
-        object.__setattr__(mcp_tool, "func", _resilient_sync)
-    return mcp_tool
-
-
-def _cleanup_mcp_sessions() -> None:
-    _LOOP_MCP_SESSIONS.clear()
-
-
-atexit.register(_cleanup_mcp_sessions)
+model = ChatGoogleGenerativeAI(
+    model=os.getenv("BEACON_AGENT_MODEL", "gemini-2.5-flash"),
+    vertexai=True,
+    project=os.getenv("GOOGLE_CLOUD_PROJECT", "master-inn-505014-t1"),
+    location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+    temperature=0.2,
+)
 
 
 async def _load_all_mcp_tools() -> tuple[list[BaseTool], list[BaseTool]]:
-    """Discover tools exposed by the Smart Home MCP Server and the TIAGo MCP Server and bind live session wrappers."""
+    """Discover tools exposed by the Smart Home MCP Server and the TIAGo MCP Server."""
     async with (
         MCPAdapter(smarthome_mcp_server) as home_adapter,
         MCPAdapter(tiago_mcp_server) as tiago_adapter,
     ):
-        raw_home_tools = await home_adapter.list_tools()
-        raw_tiago_tools = await tiago_adapter.list_tools()
-        home_tools = [_bind_resilient_mcp_tool(t, smarthome_mcp_server) for t in raw_home_tools]
-        t_tools = [_bind_resilient_mcp_tool(t, tiago_mcp_server) for t in raw_tiago_tools]
-        return home_tools, t_tools
+        home_tools = await home_adapter.list_tools()
+        tiago_tools = await tiago_adapter.list_tools()
+        return list(home_tools), list(tiago_tools)
 
 
 def _get_mcp_tool_sets() -> tuple[list[BaseTool], list[BaseTool]]:
@@ -279,18 +169,15 @@ def get_all_mcp_tools() -> list[BaseTool]:
 
 
 smarthome_tools, tiago_tools = _get_mcp_tool_sets()
-rover_tools = tiago_tools
 mcp_tools = [*smarthome_tools, *tiago_tools]
 tools = [calculator, utc_now, *mcp_tools]
 
 BEACON_SYSTEM_PROMPT = (
-    "You are Beacon, an Alexa+ Proactive Ambient Intelligence smart home orchestrator and domestic robot commander.\n"
-    "You oversee a connected Webots 3D smart home staffed by a PAL Robotics TIAGo house-errand bot\n"
-    "with Supervisor-Assisted Magnetic Grasp, Multimodal Visual Inspection, and Ambient + Human-in-the-Loop (HITL) AI workflows.\n"
+    "You are Beacon, an intelligent smart home orchestrator and domestic robot commander.\n"
+    "You oversee a connected Webots 3D smart home staffed by a PAL Robotics TIAGo house-errand bot.\n"
     "You have real-time control and telemetry across two MCP tool suites:\n\n"
     "1. **Smart Home MCP (`smarthome_mcp`)**:\n"
     "   - Overview, Scenes & Sky: `get_home_summary`, `trigger_scene`, `set_environment`.\n"
-    "   - Occupants, Objects & AI Tasks: `get_humans`, `get_household_objects`, `get_ai_tasks`, `propose_ai_task`, `approve_ai_task`.\n"
     "   - Smart Lighting: `get_lights`, `get_light_state`, `set_power_state`, `set_brightness`, `set_color`.\n"
     "   - Doors, Locks, Garage & Driveway Gate: `get_doors`, `set_door_state`, `set_door_lock`.\n"
     "   - Motorized Window Blinds: `get_blinds`, `set_blind_position`.\n"
@@ -301,20 +188,19 @@ BEACON_SYSTEM_PROMPT = (
     "   - Route Planning: `plan_tiago_route` — always call this first to identify blocking doors.\n"
     "   - Autonomous Navigation: `navigate_tiago_to_room`, `navigate_tiago_to_pose`, `stop_tiago`.\n"
     "   - Arm & Gripper Control: `set_tiago_arm_pose`, `set_tiago_gripper`.\n"
-    "   - Supervisor Magnetic Grasp Manipulation: `pick_object`, `place_object`.\n"
-    "   - Multimodal Vision & Head Camera: `inspect_scene_visually`, `look_at`, `get_tiago_camera_image`.\n"
-    "   - High-level Errands & Security Patrol: `fetch_item`, `deliver_item`, `patrol_home`, `get_errand_status`.\n\n"
+    "   - Object Manipulation: `pick_object`, `place_object`.\n"
+    "   - Head / Perception: `look_at`, `get_tiago_camera_image`.\n"
+    "   - High-level Errands: `fetch_item`, `deliver_item`, `get_errand_status`.\n\n"
     "**CRITICAL TIAGO NAVIGATION PROTOCOL**:\n"
     "Whenever asked to send TIAGo to a room or location:\n"
     "1. Call `plan_tiago_route(destination=...)` first to compute the waypoint path and check `blocking_doors`.\n"
     "2. If `blocking_doors` is non-empty, unlock (`set_door_lock`) and open (`set_door_state`) each blocking door.\n"
     "3. Optionally turn on room lights if the target room is dark.\n"
     "4. Call `navigate_tiago_to_room(room=...)` to execute the route.\n\n"
-    "**MULTIMODAL VISUAL SEARCH & MAGNETIC GRASP BEST PRACTICE**:\n"
-    "- Use `inspect_scene_visually(query=..., room=...)` or `get_household_objects()` to locate misplaced items or check on human occupants.\n"
-    "- For fetch/deliver tasks prefer `fetch_item` / `deliver_item`, which use Supervisor-Assisted Magnetic Grasp to attach the 3D object to TIAGo's wrist during transport.\n"
-    "- For multi-room inspection use `patrol_home(rooms=...)`.\n"
-    "- For sensitive or high-impact actions, queue a Human-in-the-Loop task via `propose_ai_task(..., proposed_actions=[...])`."
+    "**ERRAND BEST PRACTICE**:\n"
+    "For complex fetch/deliver tasks prefer the high-level `fetch_item` / `deliver_item` tools which\n"
+    "handle the full navigate → pick → navigate → place cycle autonomously.  Use `get_errand_status`\n"
+    "to poll progress and report back to the user."
 )
 
 graph = create_agent(

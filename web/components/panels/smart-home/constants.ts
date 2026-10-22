@@ -80,27 +80,12 @@ export const DEVICE_CATEGORIES: CategoryMeta[] = [
 
 export const TIAGO_ROOMS = [
   { id: "foyer", label: "Foyer Dock", room: "Foyer" },
-  { id: "front_door", label: "Front Entrance", room: "Foyer" },
   { id: "living_room", label: "Living Room", room: "Living Room" },
   { id: "kitchen", label: "Kitchen", room: "Kitchen" },
   { id: "dining_room", label: "Dining Room", room: "Dining Room" },
   { id: "master_bedroom", label: "Master Bedroom", room: "Master Bedroom" },
   { id: "bathroom", label: "Main Bathroom", room: "Bathroom" },
   { id: "study_bedroom", label: "Study Bedroom", room: "Study Bedroom" },
-  { id: "utility_room", label: "Utility Closet", room: "Utility" },
-];
-
-export const DEFAULT_HOUSEHOLD_OBJECTS = [
-  "cup",
-  "bottle",
-  "medicine_box",
-  "plate",
-  "tray",
-  "remote_control",
-  "keys",
-  "book",
-  "phone",
-  "glasses",
 ];
 
 export const TIAGO_ARM_PRESETS = [

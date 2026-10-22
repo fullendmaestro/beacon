@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   smartHomeApi,
   type SmartCategory,
@@ -13,27 +13,21 @@ import {
   type ApplianceDevice,
   type SensorDevice,
   type RobotDevice,
-  type TasksAndEventsResponse,
+  type RoverTelemetry,
   type ScenePreset,
   type TimeOfDay,
 } from "@/lib/smart-home-api";
 
-export function useSmartHomeSummary(pollInterval = 3500) {
+export function useSmartHomeSummary(pollInterval = 2500) {
   const [summary, setSummary] = useState<HomeSummary | null>(null);
   const [isTriggering, setIsTriggering] = useState(false);
-  const inFlightRef = useRef(false);
 
   const fetchSummary = useCallback(async () => {
-    if (inFlightRef.current) return;
-    if (typeof document !== "undefined" && document.hidden) return;
-    inFlightRef.current = true;
     try {
       const data = await smartHomeApi.getSummary();
       setSummary(data);
     } catch {
       // Silent retry on next tick if simulation is paused
-    } finally {
-      inFlightRef.current = false;
     }
   }, []);
 
@@ -88,13 +82,10 @@ export function useCategoryDevices(category: SmartCategory) {
   const [appliances, setAppliances] = useState<ApplianceDevice[]>([]);
   const [sensors, setSensors] = useState<SensorDevice[]>([]);
   const [robots, setRobots] = useState<RobotDevice[]>([]);
+  const [rover, setRover] = useState<RoverTelemetry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const inFlightRef = useRef(false);
 
   const fetchCategory = useCallback(async () => {
-    if (inFlightRef.current) return;
-    if (typeof document !== "undefined" && document.hidden) return;
-    inFlightRef.current = true;
     try {
       switch (category) {
         case "Lights":
@@ -125,7 +116,6 @@ export function useCategoryDevices(category: SmartCategory) {
     } catch {
       // Silent retry on next poll tick if Smart Home Hub is offline or restarting
     } finally {
-      inFlightRef.current = false;
       setIsLoading(false);
     }
   }, [category]);
@@ -135,10 +125,10 @@ export function useCategoryDevices(category: SmartCategory) {
     fetchCategory();
     const intervalMs =
       category === "Cameras"
-        ? 10000
+        ? 8000
         : category === "Sensors" || category === "Robots"
-          ? 2500
-          : 3500;
+          ? 1200
+          : 2000;
     const timer = setInterval(fetchCategory, intervalMs);
     return () => clearInterval(timer);
   }, [fetchCategory, category]);
@@ -158,67 +148,9 @@ export function useCategoryDevices(category: SmartCategory) {
     sensors,
     robots,
     setRobots,
+    rover,
+    setRover,
     isLoading,
     refresh: fetchCategory,
-  };
-}
-
-export function useAiTasks(pollInterval = 3500) {
-  const [data, setData] = useState<TasksAndEventsResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const inFlightRef = useRef(false);
-
-  const fetchTasks = useCallback(async () => {
-    if (inFlightRef.current) return;
-    if (typeof document !== "undefined" && document.hidden) return;
-    inFlightRef.current = true;
-    try {
-      const res = await smartHomeApi.getTasks();
-      setData(res);
-    } catch {
-      // Silent retry
-    } finally {
-      inFlightRef.current = false;
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchTasks();
-    const timer = setInterval(fetchTasks, pollInterval);
-    return () => clearInterval(timer);
-  }, [fetchTasks, pollInterval]);
-
-  const approveTask = async (taskId: string) => {
-    await smartHomeApi.approveTask(taskId);
-    await fetchTasks();
-  };
-
-  const rejectTask = async (taskId: string) => {
-    await smartHomeApi.rejectTask(taskId);
-    await fetchTasks();
-  };
-
-  const updateSettings = async (payload: {
-    ambient_enabled?: boolean;
-    hitl_enabled?: boolean;
-  }) => {
-    const updated = await smartHomeApi.updateTaskSettings(payload);
-    setData(updated);
-  };
-
-  const triggerScenario = async (scenario: string) => {
-    await smartHomeApi.triggerScenario(scenario);
-    await fetchTasks();
-  };
-
-  return {
-    data,
-    isLoading,
-    refresh: fetchTasks,
-    approveTask,
-    rejectTask,
-    updateSettings,
-    triggerScenario,
   };
 }

@@ -1,47 +1,8 @@
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from constants import BLIND_DEFS, EXTERIOR_BARRIER_DEFS
-
-
-def apply_hinge_door_pose(
-    node: Any,
-    base_trans: list[float],
-    base_yaw: float,
-    ratio: float,
-    leaf_half_width: float = 0.5,
-) -> None:
-    """Swing an interior Webots Door node around its hinge axis by ratio * 90 deg."""
-    swing_angle = ratio * (math.pi / 2.0)
-    pos_field = node.getField("position")
-    if pos_field:
-        try:
-            pos_field.setSFFloat(swing_angle)
-        except Exception:
-            pass
-
-    r_field = node.getField("rotation")
-    t_field = node.getField("translation")
-    new_yaw = base_yaw + swing_angle
-
-    # Hinge pivot is located at one edge of the door leaf along its local Y axis
-    hinge_x = base_trans[0] - leaf_half_width * math.sin(base_yaw)
-    hinge_y = base_trans[1] + leaf_half_width * math.cos(base_yaw)
-    new_x = hinge_x + leaf_half_width * math.sin(new_yaw)
-    new_y = hinge_y - leaf_half_width * math.cos(new_yaw)
-
-    if r_field:
-        try:
-            r_field.setSFRotation([0.0, 0.0, 1.0, round(new_yaw, 4)])
-        except Exception:
-            pass
-    if t_field:
-        try:
-            t_field.setSFVec3f([round(new_x, 4), round(new_y, 4), base_trans[2]])
-        except Exception:
-            pass
 
 
 class AccessManager:
@@ -57,10 +18,7 @@ class AccessManager:
         door_id = f"door_{node_id}"
         self.door_nodes[door_id] = node
         t_field = node.getField("translation")
-        r_field = node.getField("rotation")
         base_trans = list(t_field.getSFVec3f()) if t_field else [0.0, 0.0, 0.0]
-        base_rot = list(r_field.getSFRotation()) if r_field else [0.0, 0.0, 1.0, 0.0]
-        base_yaw = float(base_rot[3]) * (1.0 if (len(base_rot) < 3 or base_rot[2] >= 0) else -1.0)
         self.door_states[door_id] = {
             "id": door_id,
             "name": name,
@@ -69,8 +27,8 @@ class AccessManager:
             "position": 0,
             "locked": "Entrance" in name,
             "axis": "interior_door",
-            "base_translation": base_trans,
-            "base_yaw": base_yaw,
+            "closed_z": base_trans[2],
+            "open_z": base_trans[2] + 2.25,
         }
 
     def init_def_barriers_and_blinds(self, supervisor: Any) -> None:
@@ -168,13 +126,12 @@ class AccessManager:
             else:
                 pos[2] = new_val
             t_field.setSFVec3f(pos)
-        elif axis == "interior_door":
-            apply_hinge_door_pose(
-                node=node,
-                base_trans=list(state["base_translation"]),
-                base_yaw=float(state["base_yaw"]),
-                ratio=ratio,
-            )
+        elif axis == "interior_door" and t_field:
+            pos = list(t_field.getSFVec3f())
+            closed_z = float(state["closed_z"])
+            open_z = float(state["open_z"])
+            pos[2] = closed_z + (open_z - closed_z) * ratio
+            t_field.setSFVec3f(pos)
 
         state["position"] = target_pct
         state["state"] = "Open" if target_pct > 0 else "Closed"
