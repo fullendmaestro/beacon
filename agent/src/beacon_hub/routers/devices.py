@@ -381,6 +381,15 @@ async def control_robot_endpoint(req: dict[str, Any]) -> dict[str, Any]:
                 plan = db.compute_route(robot["pose"]["x"], robot["pose"]["y"], str(dest))
             except ValueError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
+            # Request the Hub Event Broker to open any blocking doors on the path via BarrierActuatorWorker
+            for bd in plan.get("blocking_doors", []):
+                door_dev = db.strict_lookup(bd["id"], domain="door")
+                if door_dev:
+                    await _dispatch_device_command(
+                        door_dev,
+                        "set_state",
+                        {"open_state": "open", "locked": False, "position": 100},
+                    )
             cmd = {
                 "task_id": uuid.uuid4().hex[:8],
                 "action": "navigate",

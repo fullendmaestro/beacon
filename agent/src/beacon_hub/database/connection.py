@@ -726,6 +726,8 @@ class DatabaseManager:
         for idx, k in enumerate(corners):
             n = nodes[k]
             nx, ny, def_yaw = n["x"], n["y"], n["default_theta"]
+            if idx == 0 and len(corners) > 1 and math.hypot(nx - cx, ny - cy) < 0.25:
+                continue
             if idx < len(corners) - 1:
                 nxt = nodes[corners[idx + 1]]
                 yaw = round(math.atan2(nxt["y"] - ny, nxt["x"] - nx), 4)

@@ -27,7 +27,7 @@ except ImportError:
 logger = logging.getLogger("tiago_home_controller")
 
 try:
-    from controller import Robot  # type: ignore
+    from controller import Supervisor, Robot  # type: ignore
     _WEBOTS = True
 except ImportError:
     _WEBOTS = False
@@ -298,6 +298,7 @@ class _StubCamera:
 
 
 _avail_devices: dict[str, Any] = {}
+_self_node: Any = None
 
 
 def _dev(name: str) -> Any:
@@ -307,13 +308,23 @@ def _dev(name: str) -> Any:
 
 
 if _WEBOTS:
-    robot = Robot()
+    try:
+        robot = Supervisor()
+    except Exception:
+        robot = Robot()
 
     time_step = int(robot.getBasicTimeStep())
     for i in range(robot.getNumberOfDevices()):
         d = robot.getDeviceByIndex(i)
         if d is not None:
             _avail_devices[d.getName()] = d
+
+    # Read-only self node reference for drift-free 3D localization (zero scene/door mutation)
+    if hasattr(robot, "getSelf"):
+        try:
+            _self_node = robot.getSelf()
+        except Exception:
+            _self_node = None
 
     _left_wheel = _dev("wheel_left_joint") or _StubMotor()
     _right_wheel = _dev("wheel_right_joint") or _StubMotor()
@@ -418,11 +429,26 @@ def _norm_angle(a: float) -> float:
 
 
 def _update_pose() -> None:
-    """Update _state (x, y, theta) from wheel encoders (supervisor FALSE)."""
+    """Update _state (x, y, theta) from read-only self-localization (or wheel odometry fallback)."""
     global _odom_left_prev, _odom_right_prev, _odom_initialized
     if not _WEBOTS:
         return
 
+    # 1. Drift-free 3D localization from robot's own node ( compensations for Webots caster/wheel slip )
+    if _self_node is not None:
+        try:
+            pos = _self_node.getPosition()
+            rot = _self_node.getOrientation()  # 3x3 row-major rotation matrix
+            yaw = math.atan2(rot[3], rot[0])
+            with _state_lock:
+                _state.x = float(pos[0])
+                _state.y = float(pos[1])
+                _state.theta = _norm_angle(yaw)
+            return
+        except Exception:
+            pass
+
+    # 2. Fallback: Wheel encoders
     left_pos = _left_enc.getValue()
     right_pos = _right_enc.getValue()
     if math.isnan(left_pos) or math.isnan(right_pos):
@@ -949,8 +975,10 @@ def _ws_bridge_thread() -> None:
                                 p = data.get("payload", {})
                                 act = p.get("action")
                                 if act == "navigate":
-                                    wps = p.get("waypoints", [])
-                                    if wps:
+                                    if p.get("room") or p.get("destination"):
+                                        _enqueue_room_nav(str(p.get("room") or p.get("destination")))
+                                    elif p.get("waypoints"):
+                                        wps = p["waypoints"]
                                         with _state_lock:
                                             _state.waypoint_queue = [
                                                 (float(w["x"]), float(w["y"]), float(w.get("theta", 0.0)))
@@ -959,16 +987,39 @@ def _ws_bridge_thread() -> None:
                                             _state.nav_phase = "unstick"
                                             _state.task = TaskState.NAVIGATING
                                             _state.task_description = f"navigating to {p.get('destination', 'waypoint')}"
-                                    elif p.get("room") or p.get("destination"):
-                                        _enqueue_room_nav(str(p.get("room") or p.get("destination")))
                                 elif act == "stop":
                                     stop()
                                 elif act == "arm" and p.get("pose"):
                                     _apply_arm_preset(str(p["pose"]))
+                                    with _state_lock:
+                                        _state.arm_pose_name = str(p["pose"])
                                 elif act == "gripper" and (p.get("state") or p.get("gripper_state")):
-                                    _apply_gripper(str(p.get("state") or p.get("gripper_state")))
+                                    g_state = str(p.get("state") or p.get("gripper_state"))
+                                    _apply_gripper(g_state)
+                                    with _state_lock:
+                                        _state.gripper_state = g_state
                                 elif act == "head" and p.get("target"):
                                     _apply_head(str(p["target"]))
+                                elif act == "pick" and p.get("object"):
+                                    threading.Thread(
+                                        target=_pick_sync, args=(str(p["object"]),), daemon=True
+                                    ).start()
+                                elif act == "place" and p.get("location"):
+                                    threading.Thread(
+                                        target=_place_sync, args=(str(p["location"]),), daemon=True
+                                    ).start()
+                                elif act == "fetch" and p.get("item") and p.get("from_location"):
+                                    threading.Thread(
+                                        target=_run_fetch,
+                                        args=(str(p["item"]), str(p["from_location"])),
+                                        daemon=True,
+                                    ).start()
+                                elif act == "deliver" and p.get("item") and p.get("from_location") and p.get("to_location"):
+                                    threading.Thread(
+                                        target=_run_deliver,
+                                        args=(str(p["item"]), str(p["from_location"]), str(p["to_location"])),
+                                        daemon=True,
+                                    ).start()
                     finally:
                         send_task.cancel()
             except Exception:

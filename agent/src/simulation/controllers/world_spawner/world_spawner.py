@@ -396,7 +396,7 @@ class WorldSpawnerSupervisor:
             "curr_pos": curr_pos,
             "locked": locked,
             "steps_done": 0,
-            "total_steps": max(1, int(800 / max(16, self.time_step))),
+            "total_steps": max(1, int(320 / max(16, self.time_step))),
         }
 
     def step_barrier_interpolations(self) -> None:
