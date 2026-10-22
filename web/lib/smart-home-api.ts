@@ -143,6 +143,38 @@ export interface SensorDevice {
   translation?: number[];
 }
 
+export type PedestrianMotionMode = "walk" | "loop" | "stand";
+
+export interface PedestrianActor {
+  id: string;
+  wbt_def: string;
+  name: string;
+  motion_mode: PedestrianMotionMode;
+  x: number;
+  y: number;
+  z: number;
+  theta: number;
+}
+
+export interface EventRuleRecord {
+  id: string;
+  name: string;
+  trigger_topic: string;
+  condition: Record<string, any>;
+  actions: Array<Record<string, any>>;
+  agent_prompt?: string | null;
+  cooldown_sec: number;
+  enabled: boolean;
+  last_triggered_at: number;
+}
+
+export interface EventLogRecord {
+  id: number;
+  topic: string;
+  payload: Record<string, any>;
+  created_at: string;
+}
+
 export interface SimStimulusScenario {
   id: string;
   title: string;
@@ -417,14 +449,44 @@ export const smartHomeApi = {
       target,
     }),
 
+  // Multimodal Vision Feed & Camera Snapshots
+  getFrameData: (cameraName: string) =>
+    request<{
+      camera_name: string;
+      source: string;
+      mime_type: string;
+      jpeg_base64: string;
+      stream_url: string;
+    }>(`/api/cameras/${encodeURIComponent(cameraName)}/frame?format=base64`),
+
+  // Event Reactor & Live Bus
+  getRecentEvents: (limit = 25) =>
+    request<EventLogRecord[]>(`/api/v2/events/recent?limit=${limit}`),
+
+  getEventRules: () => request<EventRuleRecord[]>("/api/v2/events/rules"),
+
+  deleteEventRule: (ruleId: string) =>
+    request<{ success: boolean; rule_id: string }>(
+      `/api/v2/events/rules/${encodeURIComponent(ruleId)}`,
+      { method: "DELETE" },
+    ),
+
   // Webots Event Simulator Stimuli
   getStimuli: () => request<SimStimulusScenario[]>("/api/v2/sim/stimuli"),
-  triggerStimulus: (scenario_id: string, trigger_agent = true) =>
+  triggerStimulus: (
+    scenario_id: string,
+    trigger_agent = true,
+    options?: { motion_mode?: PedestrianMotionMode; speed?: number },
+  ) =>
     request<{ success: boolean; scenario?: SimStimulusScenario }>(
       "/api/v2/sim/stimulus",
       {
         method: "POST",
-        body: JSON.stringify({ scenario_id, trigger_agent }),
+        body: JSON.stringify({
+          scenario_id,
+          trigger_agent,
+          ...(options || {}),
+        }),
       },
     ),
 };

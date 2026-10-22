@@ -279,6 +279,7 @@ class WorldSpawnerSupervisor:
         self.spawned_defs: dict[str, str] = {}  # device_id -> wbt_def
         self.device_records: dict[str, dict[str, Any]] = {}
         self.active_interpolations: dict[str, dict[str, Any]] = {}
+        self.active_pedestrians: dict[str, dict[str, Any]] = {}
 
     def spawn_device_node(self, dev: dict[str, Any]) -> None:
         self.device_records[dev["id"]] = dev
@@ -311,7 +312,6 @@ class WorldSpawnerSupervisor:
         if not self.supervisor:
             return
         wbt_def = str(payload.get("wbt_def", "STIM_ACTOR"))
-        # Remove existing instance of this stimulus if already spawned
         existing = self.supervisor.getFromDef(wbt_def)
         if existing is not None:
             existing.remove()
@@ -323,10 +323,11 @@ class WorldSpawnerSupervisor:
         if not children_field:
             return
 
-        tx, ty, tz = [float(c) for c in payload.get("translation", [1.15, -7.49, 0.0])]
+        tx, ty, tz = [float(c) for c in payload.get("translation", [1.15, -7.49, 1.27])]
         cr, cg, cb = [float(c) for c in payload.get("color", [0.15, 0.55, 0.95])]
+        pr, pg, pb = [float(c) for c in payload.get("pants_color", [0.18, 0.20, 0.26])]
         actor_kind = payload.get("kind", "human")
-        label = str(payload.get("name", "Simulated Person")).replace('"', '\\"')
+        label = str(payload.get("name", "Simulated Pedestrian")).replace('"', '\\"')
 
         if actor_kind == "vehicle":
             vrml_str = (
@@ -343,40 +344,44 @@ class WorldSpawnerSupervisor:
                 f'}}'
             )
         else:
-            # 3D Humanoid Avatar (Torso + Head) standing 1.75m tall with full collision bounding box
+            # Articulated Webots Pedestrian PROTO with walking gait & collision geometry enabled
+            trajectory = str(payload.get("trajectory", f"{tx} {ty}")).strip()
+            speed = float(payload.get("speed", 1.15))
+            motion_mode = str(payload.get("motion_mode", "loop")).strip().lower()
+            ped_z = tz if tz >= 1.0 else 1.27
+            rot = payload.get("rotation", [0.0, 0.0, 1.0, 3.14159])
+            rx, ry, rz, ra = [float(c) for c in rot]
+
+            controller_args: list[str] = [
+                f'"--trajectory={trajectory}"',
+                f'"--speed={speed}"',
+                f'"--mode={motion_mode}"',
+            ]
+            args_str = " ".join(controller_args)
+
             vrml_str = (
-                f'DEF {wbt_def} Solid {{\n'
-                f'  translation {tx} {ty} {tz}\n'
+                f'DEF {wbt_def} Pedestrian {{\n'
+                f'  translation {tx} {ty} {ped_z}\n'
+                f'  rotation {rx} {ry} {rz} {ra}\n'
                 f'  name "{label}"\n'
-                f'  children [\n'
-                f'    Pose {{\n'
-                f'      translation 0 0 0.75\n'
-                f'      children [\n'
-                f'        Shape {{\n'
-                f'          appearance PBRAppearance {{ baseColor {cr} {cg} {cb} roughness 0.5 metalness 0.1 }}\n'
-                f'          geometry Cylinder {{ height 1.4 radius 0.24 }}\n'
-                f'        }}\n'
-                f'      ]\n'
-                f'    }}\n'
-                f'    Pose {{\n'
-                f'      translation 0 0 1.62\n'
-                f'      children [\n'
-                f'        Shape {{\n'
-                f'          appearance PBRAppearance {{ baseColor 0.94 0.82 0.72 roughness 0.6 metalness 0.0 }}\n'
-                f'          geometry Sphere {{ radius 0.16 }}\n'
-                f'        }}\n'
-                f'      ]\n'
-                f'    }}\n'
-                f'  ]\n'
-                f'  boundingObject Pose {{\n'
-                f'    translation 0 0 0.9\n'
-                f'    children [ Box {{ size 0.5 0.5 1.8 }} ]\n'
-                f'  }}\n'
+                f'  controller "pedestrian"\n'
+                f'  controllerArgs [ {args_str} ]\n'
+                f'  shirtColor {cr} {cg} {cb}\n'
+                f'  pantsColor {pr} {pg} {pb}\n'
+                f'  enableBoundingObject TRUE\n'
                 f'}}'
             )
 
         children_field.importMFNodeFromString(-1, vrml_str)
         self.spawned_defs[wbt_def] = wbt_def
+        if actor_kind == "human":
+            self.active_pedestrians[wbt_def] = {
+                "id": payload.get("id", wbt_def.lower()),
+                "wbt_def": wbt_def,
+                "name": label,
+                "motion_mode": payload.get("motion_mode", "loop"),
+                "color": [cr, cg, cb],
+            }
 
     def clear_stimulus_actors(self, wbt_defs: list[str]) -> None:
         if not self.supervisor:
@@ -386,6 +391,39 @@ class WorldSpawnerSupervisor:
             if node is not None:
                 node.remove()
             self.spawned_defs.pop(def_name, None)
+            self.active_pedestrians.pop(def_name, None)
+        self.outgoing_queue.put({
+            "topic": "pedestrian.telemetry",
+            "payload": {"pedestrians": []},
+        })
+
+    def sample_pedestrians(self) -> None:
+        if not self.supervisor or not self.active_pedestrians:
+            return
+        actors: list[dict[str, Any]] = []
+        for wbt_def, meta in list(self.active_pedestrians.items()):
+            node = self.supervisor.getFromDef(wbt_def)
+            if node is None:
+                self.active_pedestrians.pop(wbt_def, None)
+                continue
+            tf = node.getField("translation")
+            rf = node.getField("rotation")
+            pos = list(tf.getSFVec3f()) if tf else [0.0, 0.0, 1.27]
+            rot = list(rf.getSFRotation()) if rf else [0.0, 0.0, 1.0, 0.0]
+            actors.append({
+                "id": meta["id"],
+                "wbt_def": wbt_def,
+                "name": meta["name"],
+                "motion_mode": meta["motion_mode"],
+                "x": round(float(pos[0]), 3),
+                "y": round(float(pos[1]), 3),
+                "z": round(float(pos[2]), 3),
+                "theta": round(float(rot[3]) * (1.0 if rot[2] >= 0 else -1.0), 3),
+            })
+        self.outgoing_queue.put({
+            "topic": "pedestrian.telemetry",
+            "payload": {"pedestrians": actors},
+        })
 
     def apply_lighting_command(self, dev_id: str, action: str, params: dict[str, Any]) -> None:
         from beacon_hub.database.models import ColorUtils
@@ -624,10 +662,14 @@ class WorldSpawnerSupervisor:
 
         if self.supervisor:
             last_hb = 0.0
+            last_ped = 0.0
             while self.supervisor.step(self.time_step) != -1:
                 self.process_incoming_events()
                 self.step_barrier_interpolations()
                 now = time.monotonic()
+                if now - last_ped >= 0.2:
+                    last_ped = now
+                    self.sample_pedestrians()
                 if now - last_hb >= 0.5:
                     last_hb = now
                     self.outgoing_queue.put({

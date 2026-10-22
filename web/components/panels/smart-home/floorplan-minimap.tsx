@@ -29,7 +29,7 @@ interface FloorplanMinimapProps {
 }
 
 export function FloorplanMinimap({ onOpenProvisionModal }: FloorplanMinimapProps) {
-  const { rooms, devices, navNodes, navEdges, robot, connected, simMode } =
+  const { rooms, devices, navNodes, navEdges, robot, pedestrians, connected, simMode } =
     useBeaconSocket();
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [dispatchingRoom, setDispatchingRoom] = useState<string | null>(null);
@@ -358,6 +358,47 @@ export function FloorplanMinimap({ onOpenProvisionModal }: FloorplanMinimapProps
                   stroke="#0f172a"
                   strokeWidth="1.5"
                 />
+              </g>
+            );
+          })}
+
+          {/* 5b. Live Articulated Webots Pedestrians */}
+          {pedestrians.map((ped) => {
+            const pt = worldToSvg(ped.x, ped.y);
+            const deg = (-ped.theta * 180) / Math.PI;
+            return (
+              <g
+                key={ped.wbt_def}
+                transform={`translate(${pt.x}, ${pt.y})`}
+                onMouseEnter={() =>
+                  setHoveredItem(
+                    `Pedestrian: ${ped.name} (${ped.motion_mode}) @ (${ped.x.toFixed(2)}m, ${ped.y.toFixed(2)}m)`,
+                  )
+                }
+                onMouseLeave={() => setHoveredItem(null)}
+              >
+                <circle
+                  cx="0"
+                  cy="0"
+                  r="16"
+                  fill="rgba(56, 189, 248, 0.18)"
+                  className="animate-ping"
+                />
+                <g transform={`rotate(${deg})`}>
+                  <polygon
+                    points="0,0 22,-9 22,9"
+                    fill="rgba(56, 189, 248, 0.35)"
+                  />
+                </g>
+                <circle
+                  cx="0"
+                  cy="0"
+                  r="9"
+                  fill="#0ea5e9"
+                  stroke="#0f172a"
+                  strokeWidth="2.5"
+                />
+                <circle cx="0" cy="0" r="3" fill="#ffffff" />
               </g>
             );
           })}

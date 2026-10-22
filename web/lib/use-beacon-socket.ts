@@ -10,6 +10,8 @@ import {
   type RoomPolygonRecord,
   type NavNodeRecord,
   type NavEdgeRecord,
+  type PedestrianActor,
+  type EventRuleRecord,
 } from "./smart-home-api";
 
 export interface BeaconEventAlert {
@@ -24,6 +26,13 @@ export interface BeaconEventAlert {
   timestamp: number;
 }
 
+export interface LiveBusEvent {
+  id: string;
+  topic: string;
+  payload: any;
+  timestamp: number;
+}
+
 interface BeaconSocketStore {
   connected: boolean;
   simMode: string;
@@ -33,7 +42,11 @@ interface BeaconSocketStore {
   navNodes: NavNodeRecord[];
   navEdges: NavEdgeRecord[];
   robot: RobotDevice | null;
+  pedestrians: PedestrianActor[];
   alerts: BeaconEventAlert[];
+  busEvents: LiveBusEvent[];
+  rules: EventRuleRecord[];
+  autoWakeAgent: boolean;
 }
 
 const initialState: BeaconSocketStore = {
@@ -45,7 +58,11 @@ const initialState: BeaconSocketStore = {
   navNodes: [],
   navEdges: [],
   robot: null,
+  pedestrians: [],
   alerts: [],
+  busEvents: [],
+  rules: [],
+  autoWakeAgent: true,
 };
 
 let storeState: BeaconSocketStore = { ...initialState };
@@ -163,6 +180,20 @@ function ensureWebSocketConnected() {
           storeState.simMode = msg.sim_mode;
         }
 
+        // Record every non-heartbeat event into busEvents for real-time UX visibility
+        if (topic && topic !== "sim.bridge.heartbeat" && topic !== "hub.snapshot") {
+          const entry: LiveBusEvent = {
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            topic,
+            payload,
+            timestamp: msg.timestamp ? msg.timestamp * 1000 : Date.now(),
+          };
+          storeState = {
+            ...storeState,
+            busEvents: [entry, ...storeState.busEvents].slice(0, 40),
+          };
+        }
+
         if (topic === "hub.snapshot") {
           storeState = {
             connected: true,
@@ -173,9 +204,30 @@ function ensureWebSocketConnected() {
             navNodes: payload.nav_nodes || storeState.navNodes,
             navEdges: payload.nav_edges || storeState.navEdges,
             robot: payload.robot || storeState.robot,
+            pedestrians: storeState.pedestrians,
             alerts: storeState.alerts,
+            busEvents: storeState.busEvents,
+            rules: storeState.rules,
+            autoWakeAgent: storeState.autoWakeAgent,
           };
           notify();
+          return;
+        }
+
+        if (topic === "pedestrian.telemetry") {
+          storeState = {
+            ...storeState,
+            pedestrians: payload.pedestrians || [],
+          };
+          notify();
+          return;
+        }
+
+        if (topic === "event.rule.created" || topic === "event.rule.deleted") {
+          smartHomeApi.getEventRules().then((rules) => {
+            storeState = { ...storeState, rules };
+            notify();
+          }).catch(() => {});
           return;
         }
 
@@ -330,4 +382,17 @@ export function useBeaconSocket() {
     ...state,
     refresh,
   };
+}
+
+export function setGlobalAutoWakeAgent(enabled: boolean) {
+  storeState = { ...storeState, autoWakeAgent: enabled };
+  notify();
+}
+
+export function dismissAlertById(alertId: string) {
+  storeState = {
+    ...storeState,
+    alerts: storeState.alerts.filter((a) => a.alert_id !== alertId),
+  };
+  notify();
 }

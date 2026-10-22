@@ -587,34 +587,44 @@ async def delete_event_rule_endpoint(rule_id: str) -> dict[str, Any]:
 SIM_STIMULUS_PRESETS: dict[str, dict[str, Any]] = {
     "guest_front_door": {
         "id": "guest_front_door",
-        "title": "Guest Arrives at Front Door",
-        "description": "Spawns a 3D guest avatar at (1.15, -7.49) directly in front of the Front Porch Motion Sensor ray and Front Door Camera.",
+        "title": "Visitor Walks to Front Door",
+        "description": "Spawns an articulated Webots Pedestrian walking across the entrance forecourt into the Front Porch Motion Sensor beam and Front Door Camera FOV.",
         "wbt_def": "STIM_GUEST_PORCH",
         "name": "Front Porch Visitor",
         "kind": "human",
         "room_id": "courtyard",
-        "translation": [1.15, -7.49, 0.0],
+        "translation": [3.35, -7.49, 1.27],
+        "rotation": [0.0, 0.0, 1.0, 3.14159],
+        "trajectory": "3.35 -7.49, 1.15 -7.49, 1.85 -7.49, 1.15 -7.49",
+        "speed": 1.15,
+        "motion_mode": "walk",
         "color": [0.14, 0.65, 0.92],
+        "pants_color": [0.16, 0.18, 0.24],
         "sensor_id": "front_porch_motion_sensor",
         "camera_name": "Front Door Camera",
         "auto_actions": [
             {"device_id": "dev_light_11", "params": {"power_state": "on", "brightness": 100}},
         ],
         "agent_prompt": (
-            "Front Porch Motion Sensor was just triggered by a visitor at the Front Entrance Door. "
-            "Inspect 'Front Door Camera' to verify the guest and announce their arrival."
+            "Front Porch Motion Sensor was just triggered by a walking visitor approaching the Front Entrance Door. "
+            "Call inspect_camera_feed(camera_name='Front Door Camera') to visually verify the guest and announce their arrival."
         ),
     },
     "resident_living_room": {
         "id": "resident_living_room",
-        "title": "Resident Enters Living Room",
-        "description": "Spawns a 3D resident avatar at (-4.85, -2.50) in the Living Room Motion Sensor ray and Living Room Camera FOV.",
+        "title": "Resident Paces in Living Room",
+        "description": "Spawns an articulated Webots Pedestrian walking between the Living Room and Dining Room across the Living Room Motion Sensor beam.",
         "wbt_def": "STIM_RESIDENT_LIVING",
-        "name": "Resident in Living Room",
+        "name": "Resident (Walking)",
         "kind": "human",
         "room_id": "living_room",
-        "translation": [-4.85, -2.50, 0.0],
+        "translation": [-8.20, -2.10, 1.27],
+        "rotation": [0.0, 0.0, 1.0, 0.0],
+        "trajectory": "-8.20 -2.10, -4.85 -2.50, -4.85 -4.10, -7.40 -4.10",
+        "speed": 1.05,
+        "motion_mode": "loop",
         "color": [0.16, 0.78, 0.52],
+        "pants_color": [0.22, 0.24, 0.28],
         "sensor_id": "living_room_motion_sensor",
         "camera_name": "Living Room Camera",
         "auto_actions": [
@@ -622,8 +632,8 @@ SIM_STIMULUS_PRESETS: dict[str, dict[str, Any]] = {
             {"device_id": "living_room_smart_tv", "params": {"power_state": "on", "mode": "Ambient Art"}},
         ],
         "agent_prompt": (
-            "Living Room Motion Sensor detected the resident entering the Living Room. "
-            "Check 'Living Room Camera' and ask if they need TIAGo to bring anything from the kitchen."
+            "Living Room Motion Sensor detected the resident walking through the Living Room. "
+            "Call inspect_camera_feed(camera_name='Living Room Camera') and ask if they need TIAGo to bring anything from the kitchen."
         ),
     },
     "vehicle_driveway": {
@@ -644,19 +654,24 @@ SIM_STIMULUS_PRESETS: dict[str, dict[str, Any]] = {
         ],
         "agent_prompt": (
             "Driveway Gate Motion Sensor triggered! A vehicle just pulled into the forecourt. "
-            "Inspect 'Driveway Camera' and confirm that the Driveway Gate opened safely."
+            "Call inspect_camera_feed(camera_name='Driveway Camera') and confirm that the Driveway Gate opened safely."
         ),
     },
     "intruder_hallway": {
         "id": "intruder_hallway",
-        "title": "Motion in West Corridor",
-        "description": "Spawns a 3D figure at (-4.45, -7.50) across the Hallway Motion Sensor beam.",
+        "title": "Pedestrian Walks Down West Corridor",
+        "description": "Spawns an articulated Webots Pedestrian walking down the West Corridor across the Hallway Motion Sensor beam.",
         "wbt_def": "STIM_HALLWAY_PERSON",
-        "name": "Corridor Figure",
+        "name": "Corridor Pedestrian",
         "kind": "human",
         "room_id": "corridor",
-        "translation": [-4.45, -7.50, 0.0],
+        "translation": [-6.40, -7.55, 1.27],
+        "rotation": [0.0, 0.0, 1.0, 0.0],
+        "trajectory": "-6.40 -7.55, -3.85 -7.55, -5.20 -7.55",
+        "speed": 1.1,
+        "motion_mode": "loop",
         "color": [0.92, 0.22, 0.28],
+        "pants_color": [0.12, 0.12, 0.15],
         "sensor_id": "hallway_motion_sensor",
         "camera_name": "TIAGo Camera",
         "auto_actions": [
@@ -664,8 +679,8 @@ SIM_STIMULUS_PRESETS: dict[str, dict[str, Any]] = {
             {"device_id": "dev_light_05", "params": {"power_state": "on", "brightness": 100}},
         ],
         "agent_prompt": (
-            "Hallway Motion Sensor detected movement in the corridor. "
-            "Use 'TIAGo Camera' or 'Front Door Camera' to inspect the hallway immediately."
+            "Hallway Motion Sensor detected a person walking in the corridor. "
+            "Call inspect_camera_feed(camera_name='TIAGo Camera') to inspect the hallway immediately."
         ),
     },
     "sudden_nightfall": {
@@ -710,6 +725,7 @@ async def trigger_sim_stimulus(req: dict[str, Any]) -> dict[str, Any]:
             p["wbt_def"] for p in SIM_STIMULUS_PRESETS.values() if p["wbt_def"] != "NONE"
         ]
         await broker.publish("sim.stimulus.clear", {"wbt_defs": all_defs})
+        await broker.publish("pedestrian.telemetry", {"pedestrians": []})
         # Reset motion sensors in SQLite when cleared
         for p in SIM_STIMULUS_PRESETS.values():
             if p["kind"] != "environment":
@@ -729,9 +745,14 @@ async def trigger_sim_stimulus(req: dict[str, Any]) -> dict[str, Any]:
                     )
         return {"success": True, "cleared": all_defs}
 
-    preset = SIM_STIMULUS_PRESETS.get(scenario_id)
-    if not preset:
+    if scenario_id not in SIM_STIMULUS_PRESETS:
         raise HTTPException(status_code=404, detail=f"Unknown stimulus scenario '{scenario_id}'")
+
+    preset = dict(SIM_STIMULUS_PRESETS[scenario_id])
+    if req.get("motion_mode"):
+        preset["motion_mode"] = str(req["motion_mode"])
+    if req.get("speed"):
+        preset["speed"] = float(req["speed"])
 
     # 1. If it's an environment event (nightfall), update Webots SUN_LIGHT
     if preset["kind"] == "environment":

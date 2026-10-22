@@ -197,6 +197,9 @@ async def _handle_incoming_sim_message(raw: str) -> None:
         payload["current_room"] = robot_rec["current_room"]
         await broker.publish(topic, payload)
 
+    elif topic == "pedestrian.telemetry":
+        await broker.publish(topic, payload)
+
     elif topic == "camera.frame":
         cam_name = payload.get("camera_name")
         b64_jpeg = payload.get("jpeg_base64")
