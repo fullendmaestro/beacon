@@ -812,3 +812,23 @@ async def trigger_sim_stimulus(req: dict[str, Any]) -> dict[str, Any]:
         "scenario": preset,
         "alert": alert_payload,
     }
+
+
+@router.get("/api/v2/sentinel/tasks")
+async def get_sentinel_tasks_endpoint() -> dict[str, Any]:
+    from ..main import get_sentinel_service
+    sentinel = get_sentinel_service()
+    return {
+        "enabled": sentinel.enabled,
+        "tasks": sentinel.get_recent_tasks(),
+    }
+
+
+@router.post("/api/v2/sentinel/config")
+async def set_sentinel_config_endpoint(req: dict[str, Any]) -> dict[str, Any]:
+    from ..main import get_sentinel_service
+    sentinel = get_sentinel_service()
+    if "enabled" in req:
+        sentinel.enabled = bool(req["enabled"])
+    return {"enabled": sentinel.enabled}
+

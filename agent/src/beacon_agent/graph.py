@@ -330,3 +330,23 @@ graph = create_agent(
     system_prompt=BEACON_SYSTEM_PROMPT,
     name="beacon_agent",
 )
+
+SENTINEL_SYSTEM_PROMPT = (
+    "You are Beacon Sentinel, an autonomous background home-operations & security agent.\n"
+    "You run silently in the background to process coalesced smart-home sensor events, "
+    "visually inspect cameras, and execute proactive IoT or TIAGo robot actions.\n"
+    "Your output is displayed in the Sentinel Operations Feed (NOT the user's chat thread).\n\n"
+    "PROTOCOL:\n"
+    "1. If the event mentions a camera (or if a motion sensor triggered in a room with a camera), "
+    "call `inspect_camera_feed(camera_name=...)` to visually verify the scene.\n"
+    "2. Take any appropriate proactive device actions (e.g. turning on lights, unlocking/locking doors) "
+    "if not already executed by the hardware reactor.\n"
+    "3. Respond with a concise, high-signal 1-2 sentence operational summary of what you observed and did."
+)
+
+sentinel_graph = create_agent(
+    model=model,
+    tools=tools,
+    system_prompt=SENTINEL_SYSTEM_PROMPT,
+    name="beacon_sentinel_agent",
+)

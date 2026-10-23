@@ -105,8 +105,10 @@ export function SimulatorPanel() {
     connected,
     pedestrians,
     busEvents,
+    sentinelTasks,
     autoWakeAgent,
   } = useBeaconSocket();
+
 
   const [tab, setTab] = useState<"scenarios" | "events">("scenarios");
   const [activeCamera, setActiveCamera] = useState<string>("Front Door Camera");
@@ -195,7 +197,7 @@ export function SimulatorPanel() {
         <div className="flex items-center justify-between border-t border-border/50 pt-2.5">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Sparkles className="size-3.5 text-teal-500" />
-            <span>Auto-wake Beacon Agent on event trigger</span>
+            <span>Background Sentinel Agent (zero chat interruption)</span>
           </div>
           <Switch
             checked={autoWakeAgent}
@@ -203,6 +205,7 @@ export function SimulatorPanel() {
           />
         </div>
       </div>
+
 
       {/* Sub-navigation Tabs */}
       <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-border/60 bg-muted/40 p-1">
@@ -417,8 +420,62 @@ export function SimulatorPanel() {
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Background Sentinel Reports ({sentinelTasks.length})
+            </span>
+            {sentinelTasks.length === 0 ? (
+              <p className="rounded-2xl border border-border/40 bg-muted/15 p-3 text-xs text-muted-foreground">
+                No background Sentinel tasks yet. Spawn a pedestrian or trigger a sensor to see coalesced background analysis.
+              </p>
+            ) : (
+              <div className="flex max-h-56 flex-col gap-2 overflow-y-auto pr-1">
+                {sentinelTasks.map((task) => (
+                  <div
+                    key={task.task_id}
+                    className="flex flex-col gap-1.5 rounded-2xl border border-teal-500/30 bg-teal-500/5 p-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-foreground truncate">
+                        {task.title}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                          task.status === "running"
+                            ? "bg-amber-500/20 text-amber-400 animate-pulse"
+                            : task.status === "completed"
+                              ? "bg-emerald-500/20 text-emerald-400"
+                              : "bg-red-500/20 text-red-400",
+                        )}
+                      >
+                        {task.status}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {task.summary}
+                    </p>
+                    {task.tool_calls?.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {task.tool_calls.map((tc, i) => (
+                          <span
+                            key={i}
+                            className="rounded bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-teal-400"
+                          >
+                            {tc}()
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Active Event Reactor Rules ({rules.length})
             </span>
+
             <div className="flex flex-col gap-2">
               {rules.map((rule) => (
                 <div

@@ -196,7 +196,7 @@ const InspectCameraToolUI = makeAssistantToolUI<
 });
 
 function EventDrivenAgentBridge() {
-  const { alerts, autoWakeAgent } = useBeaconSocket();
+  const { alerts, sentinelTasks } = useBeaconSocket();
   const aui = useAui();
   const lastAlertIdRef = useRef<string | null>(null);
   const [activeToast, setActiveToast] = useState<BeaconEventAlert | null>(null);
@@ -211,32 +211,27 @@ function EventDrivenAgentBridge() {
     }
     lastAlertIdRef.current = latest.alert_id;
     setActiveToast(latest);
-
-    if (autoWakeAgent && latest.agent_prompt) {
-      aui.thread.append({
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `[AUTONOMOUS HOME EVENT — ${latest.rule_name}]: ${latest.message}. ${latest.agent_prompt}`,
-          },
-        ],
-      });
-    }
-  }, [alerts, autoWakeAgent, aui]);
+    // NOTE: We no longer call aui.thread.append() automatically here!
+    // BackgroundSentinelService processes the event in a separate background agent.
+  }, [alerts]);
 
   if (!activeToast) return null;
 
-  const handleAskAgentNow = () => {
-    const promptText =
-      activeToast.agent_prompt ||
-      `Inspect '${activeToast.camera_name || "Front Door Camera"}' and report on the event: ${activeToast.message}`;
+  // Match the background Sentinel task handling this alert
+  const matchingTask = sentinelTasks.find((t) =>
+    t.alert_ids?.includes(activeToast.alert_id),
+  );
+
+  const handleEscalateToChat = () => {
+    const contextSummary = matchingTask?.summary
+      ? `Background Sentinel Report: "${matchingTask.summary}". `
+      : "";
     aui.thread.append({
       role: "user",
       content: [
         {
           type: "text",
-          text: `[AUTONOMOUS HOME EVENT — ${activeToast.rule_name}]: ${activeToast.message}. ${promptText}`,
+          text: `Let's follow up on the '${activeToast.rule_name}' event (${activeToast.message}). ${contextSummary}What else should we do?`,
         },
       ],
     });
@@ -247,22 +242,27 @@ function EventDrivenAgentBridge() {
     <div className="fixed bottom-6 left-20 z-50 w-80 sm:w-96 animate-in slide-in-from-bottom-5 fade-in duration-300">
       <div className="overflow-hidden rounded-2xl border border-teal-500/40 bg-card/95 shadow-2xl backdrop-blur-md">
         <div className="flex items-center justify-between border-b border-border/60 bg-teal-500/10 px-3.5 py-2">
-          <div className="flex items-center gap-2">
-            <Zap className="size-4 text-teal-500 animate-bounce" />
-            <span className="text-xs font-bold text-foreground">
+          <div className="flex items-center gap-2 min-w-0">
+            <Zap className="size-4 shrink-0 text-teal-500" />
+            <span className="truncate text-xs font-bold text-foreground">
               {activeToast.rule_name}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              dismissAlertById(activeToast.alert_id);
-              setActiveToast(null);
-            }}
-            className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <X className="size-3.5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-full bg-teal-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-teal-400">
+              Background Sentinel
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                dismissAlertById(activeToast.alert_id);
+                setActiveToast(null);
+              }}
+              className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
         </div>
 
         {/* Live PiP Camera Feed if associated with a camera */}
@@ -280,7 +280,7 @@ function EventDrivenAgentBridge() {
           </div>
         )}
 
-        <div className="flex flex-col gap-2 p-3">
+        <div className="flex flex-col gap-2.5 p-3">
           <p className="text-xs text-muted-foreground leading-relaxed">
             {activeToast.message}
           </p>
@@ -299,26 +299,65 @@ function EventDrivenAgentBridge() {
             </div>
           )}
 
+          {/* Background Sentinel Agent Synthesis Box */}
+          {matchingTask && (
+            <div className="rounded-xl border border-teal-500/30 bg-teal-500/5 p-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2 pb-1">
+                <span className="flex items-center gap-1.5 font-semibold text-teal-400">
+                  <Sparkles
+                    className={cn(
+                      "size-3.5",
+                      matchingTask.status === "running" && "animate-spin",
+                    )}
+                  />
+                  {matchingTask.status === "running"
+                    ? "Sentinel Agent Inspecting..."
+                    : "Sentinel Background Report"}
+                </span>
+                {matchingTask.event_count > 1 && (
+                  <span className="rounded-full bg-teal-500/20 px-1.5 py-0.2 text-[9px] font-bold text-teal-300">
+                    {matchingTask.event_count} Coalesced
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-foreground/90 leading-snug">
+                {matchingTask.summary}
+              </p>
+              {matchingTask.tool_calls?.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {matchingTask.tool_calls.map((tc, idx) => (
+                    <span
+                      key={idx}
+                      className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[9px] text-teal-300"
+                    >
+                      {tc}()
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-2 pt-1">
-            <span className="font-mono text-[10px] text-muted-foreground">
+            <span className="truncate font-mono text-[10px] text-muted-foreground">
               {activeToast.trigger_topic}
             </span>
-            {!autoWakeAgent && (
-              <Button
-                size="sm"
-                className="h-7 gap-1 rounded-xl text-[11px]"
-                onClick={handleAskAgentNow}
-              >
-                <Sparkles className="size-3" />
-                Ask Beacon
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0 gap-1 rounded-xl text-[11px]"
+              onClick={handleEscalateToChat}
+            >
+              <Sparkles className="size-3 text-teal-500" />
+              Discuss in Chat
+            </Button>
           </div>
         </div>
       </div>
     </div>
   );
 }
+
 
 export function Assistant({ children }: { children: React.ReactNode }) {
   const client = useMemo(() => createClient(), []);

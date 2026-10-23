@@ -30,8 +30,8 @@ except ImportError:
 class IoTDeviceController:
     """
     Process-isolated Webots controller bound to a single `device_id` via `controllerArgs`.
-    Connects to `ws://127.0.0.1:8000/ws/device/<device_id>`, listens only for its own
-    `device.command.<domain>.<id>`, and publishes sensor telemetry or camera frames.
+    Uses adaptive baseline calibration and edge-triggered hysteresis so static walls/doors
+    never cause false-positive motion floods.
     """
 
     def __init__(self, device_id: str) -> None:
@@ -44,14 +44,22 @@ class IoTDeviceController:
         self.light_sensor: Any = None
         self.wbt_name = device_id
 
+        # Edge-triggered & adaptive baseline state
+        self._calibration_samples: list[float] = []
+        self._baseline_dist: float | None = None
+        self._prev_dist: float | None = None
+        self._motion_hold_until: float = 0.0
+        self._last_emitted_triggered: bool | None = None
+        self._last_emitted_value: float = -1.0
+        self._last_emit_ts: float = 0.0
+        self._last_cam_ts: float = 0.0
+
         if self.robot:
             for i in range(self.robot.getNumberOfDevices()):
                 dev = self.robot.getDeviceByIndex(i)
                 if not dev:
                     continue
                 self.wbt_name = dev.getName()
-                nt = dev.getNodeType()
-                # Node types or duck-typing for Camera / DistanceSensor / LightSensor
                 if hasattr(dev, "getImage"):
                     self.camera = dev
                     self.camera.enable(max(self.time_step * 8, 128))
@@ -66,45 +74,95 @@ class IoTDeviceController:
         t = threading.Thread(target=lambda: asyncio.run(self._ws_loop()), daemon=True)
         t.start()
 
-        last_pub = 0.0
+        last_sample = 0.0
         if self.robot:
             while self.robot.step(self.time_step) != -1:
                 now = time.monotonic()
-                if now - last_pub >= 0.25:
-                    last_pub = now
-                    self._sample_local_devices()
+                if now - last_sample >= 0.25:
+                    last_sample = now
+                    self._sample_local_devices(now)
         else:
             while True:
                 time.sleep(0.5)
 
-    def _sample_local_devices(self) -> None:
+    def _sample_local_devices(self, now: float) -> None:
+        # 1. Motion / Distance Sensor with Static-Background Calibration & Delta Detection
         if self.distance_sensor is not None:
-            val = round(float(self.distance_sensor.getValue()), 1)
-            triggered = val < 950.0
-            self.outgoing_queue.append({
-                "topic": f"sensor.telemetry.{self.device_id}",
-                "payload": {
-                    "device_id": self.device_id,
-                    "wbt_name": self.wbt_name,
-                    "triggered": triggered,
-                    "value": val,
-                    "state": "Motion Detected" if triggered else "Clear",
-                },
-            })
+            raw_val = float(self.distance_sensor.getValue())
+            if not (0.0 <= raw_val <= 10000.0):
+                raw_val = 1000.0
+            val = round(raw_val, 1)
+
+            # Collect first 6 samples (~1.5s) to lock in static room geometry (walls, furniture, docked robot)
+            if self._baseline_dist is None:
+                self._calibration_samples.append(val)
+                if len(self._calibration_samples) >= 6:
+                    self._baseline_dist = sum(self._calibration_samples) / len(self._calibration_samples)
+                    self._prev_dist = val
+                return
+
+            prev = self._prev_dist if self._prev_dist is not None else val
+            self._prev_dist = val
+
+            # True motion occurs when either:
+            # (a) Instantaneous step delta > 25 units (moving body crossing the ray), or
+            # (b) Object is > 55 units closer than the calibrated static room baseline
+            step_delta = abs(val - prev)
+            baseline_drop = self._baseline_dist - val
+
+            if step_delta >= 25.0 or baseline_drop >= 55.0:
+                self._motion_hold_until = now + 3.0  # Hold triggered state for 3s to prevent rapid chatter
+            else:
+                # Slowly adapt baseline to gradual static changes (e.g. a door left open)
+                self._baseline_dist = 0.98 * self._baseline_dist + 0.02 * val
+
+            triggered = now < self._motion_hold_until
+
+            # Emit ONLY on state transition (Clear <-> Motion Detected) or significant value shift while triggered
+            state_changed = triggered != self._last_emitted_triggered
+            value_shifted = triggered and abs(val - self._last_emitted_value) >= 40.0
+            if state_changed or value_shifted:
+                self._last_emitted_triggered = triggered
+                self._last_emitted_value = val
+                self._last_emit_ts = now
+                self.outgoing_queue.append({
+                    "topic": f"sensor.telemetry.{self.device_id}",
+                    "payload": {
+                        "device_id": self.device_id,
+                        "wbt_name": self.wbt_name,
+                        "triggered": triggered,
+                        "value": val,
+                        "state": "Motion Detected" if triggered else "Clear",
+                    },
+                })
+
+        # 2. Daylight / Light Sensor with Hysteresis (Triggers < 280 lux, Clears > 340 lux)
         if self.light_sensor is not None:
-            val = round(float(self.light_sensor.getValue()), 1)
-            triggered = val < 300.0
-            self.outgoing_queue.append({
-                "topic": f"sensor.telemetry.{self.device_id}",
-                "payload": {
-                    "device_id": self.device_id,
-                    "wbt_name": self.wbt_name,
-                    "triggered": triggered,
-                    "value": val,
-                    "state": "Low Light / Night" if triggered else "Daylight",
-                },
-            })
-        if self.camera is not None and Image is not None:
+            raw_val = float(self.light_sensor.getValue())
+            val = round(raw_val, 1)
+            prev_trig = bool(self._last_emitted_triggered)
+            triggered = (val < 280.0) if not prev_trig else (val < 340.0)
+
+            state_changed = triggered != self._last_emitted_triggered
+            value_shifted = abs(val - self._last_emitted_value) >= 50.0 and (now - self._last_emit_ts >= 5.0)
+            if state_changed or value_shifted:
+                self._last_emitted_triggered = triggered
+                self._last_emitted_value = val
+                self._last_emit_ts = now
+                self.outgoing_queue.append({
+                    "topic": f"sensor.telemetry.{self.device_id}",
+                    "payload": {
+                        "device_id": self.device_id,
+                        "wbt_name": self.wbt_name,
+                        "triggered": triggered,
+                        "value": val,
+                        "state": "Low Light / Night" if triggered else "Daylight",
+                    },
+                })
+
+        # 3. Camera Frame (Throttled to ~2 FPS background sync to save bandwidth)
+        if self.camera is not None and Image is not None and (now - self._last_cam_ts >= 0.5):
+            self._last_cam_ts = now
             try:
                 raw = self.camera.getImage()
                 if raw:

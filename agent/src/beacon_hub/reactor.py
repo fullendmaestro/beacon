@@ -18,13 +18,15 @@ logger = logging.getLogger("beacon_hub.reactor")
 class EventReactor:
     """
     Subscribes to the in-process EventBroker and evaluates event-driven rules
-    whenever sensors trigger, devices change state, or TIAGo completes a step.
+    on rising-edge state transitions whenever sensors trigger or devices change state.
     """
 
     def __init__(self, db: DatabaseManager, broker: EventBroker) -> None:
         self.db = db
         self.broker = broker
         self._unsub: Any = None
+        # Track last known boolean `triggered` state per topic to enforce rising-edge evaluation
+        self._last_topic_triggered: dict[str, bool] = {}
 
     def start(self) -> None:
         if self._unsub is None:
@@ -36,13 +38,29 @@ class EventReactor:
             self._unsub = None
 
     async def _on_any_event(self, topic: str, payload: dict[str, Any]) -> None:
-        # Avoid infinite loops on reactor-emitted alerts or high-frequency heartbeats
-        if topic in ("sim.bridge.heartbeat", "agent.event.alert", "hub.snapshot", "camera.frame"):
+        if topic in (
+            "sim.bridge.heartbeat",
+            "agent.event.alert",
+            "hub.snapshot",
+            "camera.frame",
+            "pedestrian.telemetry",
+        ) or topic.startswith("sentinel.task."):
             return
 
-        # Log significant telemetry transitions
+        # Enforce rising-edge transition detection on sensor.telemetry.*
         if topic.startswith("sensor.telemetry."):
+            curr_trig = bool(payload.get("triggered", False))
+            prev_trig = self._last_topic_triggered.get(topic, False)
+            self._last_topic_triggered[topic] = curr_trig
+
+            # Only log and evaluate rules when transitioning changes (e.g., Clear -> Motion)
+            if curr_trig == prev_trig and not payload.get("stimulus"):
+                return
             self.db.log_event(topic, payload)
+
+            # If triggered directly by /api/v2/sim/stimulus, the stimulus endpoint emits its own rich alert
+            if payload.get("stimulus"):
+                return
 
         rules = self.db.list_event_rules()
         now = time.monotonic()

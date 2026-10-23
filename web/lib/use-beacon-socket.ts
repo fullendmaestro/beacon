@@ -14,6 +14,19 @@ import {
   type EventRuleRecord,
 } from "./smart-home-api";
 
+export interface SentinelTaskRecord {
+  task_id: string;
+  alert_ids: string[];
+  title: string;
+  camera_name?: string | null;
+  event_count: number;
+  status: "running" | "completed" | "failed";
+  summary: string;
+  tool_calls: string[];
+  timestamp: number;
+  completed_at?: number;
+}
+
 export interface BeaconEventAlert {
   alert_id: string;
   rule_id: string;
@@ -47,6 +60,7 @@ interface BeaconSocketStore {
   busEvents: LiveBusEvent[];
   rules: EventRuleRecord[];
   autoWakeAgent: boolean;
+  sentinelTasks: SentinelTaskRecord[];
 }
 
 const initialState: BeaconSocketStore = {
@@ -63,7 +77,9 @@ const initialState: BeaconSocketStore = {
   busEvents: [],
   rules: [],
   autoWakeAgent: true,
+  sentinelTasks: [],
 };
+
 
 let storeState: BeaconSocketStore = { ...initialState };
 const listeners = new Set<(state: BeaconSocketStore) => void>();
@@ -209,7 +225,27 @@ function ensureWebSocketConnected() {
             busEvents: storeState.busEvents,
             rules: storeState.rules,
             autoWakeAgent: storeState.autoWakeAgent,
+            sentinelTasks: storeState.sentinelTasks,
           };
+          notify();
+          return;
+        }
+
+        if (
+          topic === "sentinel.task.started" ||
+          topic === "sentinel.task.completed" ||
+          topic === "sentinel.task.failed"
+        ) {
+          const incoming = payload as SentinelTaskRecord;
+          const exists = storeState.sentinelTasks.some(
+            (t) => t.task_id === incoming.task_id,
+          );
+          const nextTasks = exists
+            ? storeState.sentinelTasks.map((t) =>
+                t.task_id === incoming.task_id ? incoming : t,
+              )
+            : [incoming, ...storeState.sentinelTasks].slice(0, 20);
+          storeState = { ...storeState, sentinelTasks: nextTasks };
           notify();
           return;
         }
@@ -237,6 +273,7 @@ function ensureWebSocketConnected() {
           notify();
           return;
         }
+
 
         if (topic === "device.lifecycle.provisioned") {
           const exists = storeState.devices.some((d) => d.id === payload.id);
@@ -387,7 +424,16 @@ export function useBeaconSocket() {
 export function setGlobalAutoWakeAgent(enabled: boolean) {
   storeState = { ...storeState, autoWakeAgent: enabled };
   notify();
+  fetch(
+    `${process.env.NEXT_PUBLIC_SMART_HOME_API_URL || "http://127.0.0.1:8000"}/api/v2/sentinel/config`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    },
+  ).catch(() => {});
 }
+
 
 export function dismissAlertById(alertId: string) {
   storeState = {

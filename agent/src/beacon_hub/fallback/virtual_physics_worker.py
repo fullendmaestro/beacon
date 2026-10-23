@@ -57,6 +57,16 @@ class VirtualPhysicsWorker:
         # Subscribe to device and robot commands on the Event Broker
         self.broker.subscribe("device.command.*", self._on_device_command)
         self.broker.subscribe("robot.command.tiago", self._on_robot_command)
+        self._last_robot_pos: tuple[float, float] | None = None
+        self._sensor_hold_until: dict[str, float] = {}
+        self.broker.subscribe("sim.stimulus.spawn", self._on_sim_stimulus_spawn)
+
+    async def _on_sim_stimulus_spawn(self, _topic: str, payload: dict[str, Any]) -> None:
+        sensor_id = payload.get("sensor_id")
+        if sensor_id:
+            # Keep virtual motion sensor held for 8s when a stimulus is spawned
+            self._sensor_hold_until[str(sensor_id)] = time.monotonic() + 8.0
+
 
     def start(self) -> None:
         if not self._running:
@@ -570,29 +580,52 @@ class VirtualPhysicsWorker:
         )
 
     async def _step_virtual_sensors(self) -> None:
+        now = time.monotonic()
         robot = self.db.get_robot("tiago")
         rx, ry = float(robot["pose"]["x"]), float(robot["pose"]["y"])
+
+        # Compute whether TIAGo is actually moving (velocity > 0.04 m/s)
+        if self._last_robot_pos is None:
+            self._last_robot_pos = (rx, ry)
+            robot_is_moving = False
+        else:
+            move_delta = math.hypot(rx - self._last_robot_pos[0], ry - self._last_robot_pos[1])
+            self._last_robot_pos = (rx, ry)
+            robot_is_moving = move_delta > 0.015 or robot.get("status") == "Navigating"
+
         env = self.db.get_environment()
         sun_lum = float(env.get("sun_luminosity", 0.85))
 
         for sensor in self.db.list_devices("sensor"):
+            sid = sensor["id"]
             rep = dict(sensor["reported_state"])
             if sensor["proto_type"] == "DistanceSensor":
                 sx, sy = float(sensor["translation"][0]), float(sensor["translation"][1])
                 radius = float(sensor["config"].get("range_m", 2.8))
                 d = math.hypot(rx - sx, ry - sy)
-                triggered = d <= radius
-                val = round(min(1000.0, (d / max(0.5, radius)) * 950.0), 1) if triggered else 1000.0
+
+                # Only trigger if TIAGo is actively moving inside the sensor radius OR a stimulus hold is active
+                if robot_is_moving and d <= radius:
+                    self._sensor_hold_until[sid] = now + 2.5
+
+                triggered = now < self._sensor_hold_until.get(sid, 0.0)
+                val = (
+                    round(min(900.0, (d / max(0.5, radius)) * 850.0), 1)
+                    if (triggered and d <= radius)
+                    else (320.0 if triggered else 1000.0)
+                )
                 new_state = "Motion Detected" if triggered else "Clear"
-                if rep.get("triggered") != triggered or abs(float(rep.get("value", 1000.0)) - val) > 5.0:
+
+                # Emit ONLY when `triggered` boolean transitions
+                if bool(rep.get("triggered", False)) != triggered:
                     rep["triggered"] = triggered
                     rep["value"] = val
                     rep["state"] = new_state
-                    self.db.update_reported_state(sensor["id"], rep, also_sync_desired=True)
+                    self.db.update_reported_state(sid, rep, also_sync_desired=True)
                     await self.broker.publish(
-                        f"sensor.telemetry.{sensor['id']}",
+                        f"sensor.telemetry.{sid}",
                         {
-                            "device_id": sensor["id"],
+                            "device_id": sid,
                             "wbt_name": sensor["wbt_name"],
                             "triggered": triggered,
                             "value": val,
@@ -603,21 +636,22 @@ class VirtualPhysicsWorker:
                 val = round(sun_lum * 1000.0, 1)
                 is_dark = val < 300.0
                 new_state = "Low Light / Night" if is_dark else "Daylight"
-                if rep.get("triggered") != is_dark or abs(float(rep.get("value", 850.0)) - val) > 5.0:
+                if bool(rep.get("triggered", False)) != is_dark:
                     rep["triggered"] = is_dark
                     rep["value"] = val
                     rep["state"] = new_state
-                    self.db.update_reported_state(sensor["id"], rep, also_sync_desired=True)
+                    self.db.update_reported_state(sid, rep, also_sync_desired=True)
                     await self.broker.publish(
-                        f"sensor.telemetry.{sensor['id']}",
+                        f"sensor.telemetry.{sid}",
                         {
-                            "device_id": sensor["id"],
+                            "device_id": sid,
                             "wbt_name": sensor["wbt_name"],
                             "triggered": is_dark,
                             "value": val,
                             "state": new_state,
                         },
                     )
+
 
     def render_synthetic_camera_frame(self, camera_name: str, width: int = 640, height: int = 480) -> bytes:
         """Generate a dynamic synthetic JPEG frame annotated with live SQLite room state."""

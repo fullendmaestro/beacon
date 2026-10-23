@@ -14,6 +14,7 @@ from .broker import get_broker
 from .database.connection import get_db
 from .fallback.virtual_physics_worker import VirtualPhysicsWorker
 from .reactor import EventReactor
+from .sentinel import BackgroundSentinelService
 from .routers import (
     devices_router,
     floorplan_router,
@@ -23,6 +24,7 @@ from .routers import (
 
 _fallback_worker: VirtualPhysicsWorker | None = None
 _event_reactor: EventReactor | None = None
+_sentinel_service: BackgroundSentinelService | None = None
 
 
 def get_fallback_worker() -> VirtualPhysicsWorker:
@@ -39,17 +41,28 @@ def get_event_reactor() -> EventReactor:
     return _event_reactor
 
 
+def get_sentinel_service() -> BackgroundSentinelService:
+    global _sentinel_service
+    if _sentinel_service is None:
+        _sentinel_service = BackgroundSentinelService(db=get_db(), broker=get_broker())
+    return _sentinel_service
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     worker = get_fallback_worker()
     reactor = get_event_reactor()
+    sentinel = get_sentinel_service()
     worker.start()
     reactor.start()
+    sentinel.start()
     try:
         yield
     finally:
+        await sentinel.stop()
         reactor.stop()
         await worker.stop()
+
 
 
 def create_hub_app() -> FastAPI:
